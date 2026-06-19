@@ -1,0 +1,7 @@
+-- +goose Up
+CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS "citext" WITH SCHEMA public;
+
+-- +goose Down
+DROP EXTENSION IF EXISTS "postgis";
+DROP EXTENSION IF EXISTS "citext";

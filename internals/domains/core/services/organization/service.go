@@ -1,0 +1,947 @@
+package organization_service
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/yca-software/2chi-go-api/internals/constants"
+	"github.com/yca-software/2chi-go-api/internals/domains/core/models"
+	"github.com/yca-software/2chi-go-api/internals/domains/core/repositories"
+	billing_account_repository "github.com/yca-software/2chi-go-api/internals/domains/core/repositories/organization/billing_account"
+	organization_location_repository "github.com/yca-software/2chi-go-api/internals/domains/core/repositories/organization/location"
+	organization_member_repository "github.com/yca-software/2chi-go-api/internals/domains/core/repositories/organization/member"
+	organization_repository "github.com/yca-software/2chi-go-api/internals/domains/core/repositories/organization/organization"
+	role_repository "github.com/yca-software/2chi-go-api/internals/domains/core/repositories/role"
+	user_repository "github.com/yca-software/2chi-go-api/internals/domains/core/repositories/user/user"
+	audit_service "github.com/yca-software/2chi-go-api/internals/domains/core/services/audit"
+	billing_service "github.com/yca-software/2chi-go-api/internals/domains/core/services/billing"
+	invitation_service "github.com/yca-software/2chi-go-api/internals/domains/core/services/invitation"
+	location_service "github.com/yca-software/2chi-go-api/internals/domains/core/services/location"
+	"github.com/yca-software/2chi-go-api/internals/platform/audit"
+	"github.com/yca-software/2chi-go-api/internals/platform/authz"
+	platform_subscription "github.com/yca-software/2chi-go-api/internals/platform/subscription"
+	chi_archive "github.com/yca-software/2chi-go-archive"
+	chi_error "github.com/yca-software/2chi-go-error"
+	chi_logger "github.com/yca-software/2chi-go-logger"
+	chi_repository "github.com/yca-software/2chi-go-repository"
+	chi_types "github.com/yca-software/2chi-go-types"
+	chi_validator "github.com/yca-software/2chi-go-validator"
+)
+
+type Dependencies struct {
+	GenerateID         func() (uuid.UUID, error)
+	Now                func() time.Time
+	Validator          chi_validator.Validator
+	Logger             chi_logger.Logger
+	Authorizer         *authz.Authorizer
+	Repositories       *repositories.Repositories
+	RunInTx            repositories.TxRunner
+	SessionCache       *authz.SessionCache
+	AuditService       audit_service.Service
+	BillingService     billing_service.Service
+	LocationService    location_service.Service
+	InvitationsService invitation_service.Service
+}
+
+type Service interface {
+	CreateOrganization(ctx context.Context, req *CreateOrganizationRequest, access *chi_types.AccessInfo) (*CreateOrganizationResponse, error)
+
+	UpdateOrganization(ctx context.Context, req *UpdateOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error)
+	UpdateOrganizationSubscription(ctx context.Context, req *UpdateOrganizationSubscriptionRequest, access *chi_types.AccessInfo) (*models.OrganizationBillingAccount, error)
+	UpdateOrganizationMember(ctx context.Context, req *UpdateOrganizationMemberRequest, access *chi_types.AccessInfo) (*models.OrganizationMemberWithUser, error)
+
+	ArchiveOrganization(ctx context.Context, req *ArchiveOrganizationRequest, access *chi_types.AccessInfo) error
+	RestoreOrganization(ctx context.Context, req *RestoreOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error)
+
+	DeleteOrganizationMember(ctx context.Context, req *DeleteOrganizationMemberRequest, access *chi_types.AccessInfo) error
+
+	GetOrganization(ctx context.Context, req *GetOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error)
+	GetArchivedOrganization(ctx context.Context, req *GetOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error)
+
+	ListOrganizations(ctx context.Context, req *ListOrganizationsRequest, access *chi_types.AccessInfo) (*ListOrganizationsResponse, error)
+	ListOrganizationMembers(ctx context.Context, req *ListOrganizationMembersRequest, access *chi_types.AccessInfo) (*[]models.OrganizationMemberWithUser, error)
+	ListOrganizationRolesForUser(ctx context.Context, req *ListOrganizationRolesForUserRequest, access *chi_types.AccessInfo) (*[]models.OrganizationMemberWithOrganizationAndRole, error)
+
+	AdminCreateOrganization(ctx context.Context, req *AdminCreateOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error)
+
+	CleanupArchivedOrganizations(ctx context.Context) error
+}
+
+type service struct {
+	generateID                func() (uuid.UUID, error)
+	now                       func() time.Time
+	validator                 chi_validator.Validator
+	logger                    chi_logger.Logger
+	runInTx                   repositories.TxRunner
+	authorizer                *authz.Authorizer
+	organizationsRepo         organization_repository.OrganizationsRepository
+	organizationLocationsRepo organization_location_repository.OrganizationLocationsRepository
+	organizationMembersRepo   organization_member_repository.OrganizationMembersRepository
+	billingAccountsRepo       billing_account_repository.OrganizationBillingAccountsRepository
+	rolesRepo                 role_repository.RolesRepository
+	usersRepo                 user_repository.UsersRepository
+	sessionCache              *authz.SessionCache
+	auditService              audit_service.Service
+	billingService            billing_service.Service
+	locationService           location_service.Service
+	invitationsService        invitation_service.Service
+}
+
+func New(deps Dependencies) Service {
+	runInTx := deps.RunInTx
+	if runInTx == nil && deps.Repositories != nil {
+		runInTx = deps.Repositories.RunInTx
+	}
+	return &service{
+		generateID:                deps.GenerateID,
+		now:                       deps.Now,
+		validator:                 deps.Validator,
+		logger:                    deps.Logger,
+		runInTx:                   runInTx,
+		authorizer:                deps.Authorizer,
+		organizationsRepo:         deps.Repositories.Organizations,
+		organizationLocationsRepo: deps.Repositories.OrganizationLocations,
+		organizationMembersRepo:   deps.Repositories.OrganizationMembers,
+		billingAccountsRepo:       deps.Repositories.OrganizationBillingAccounts,
+		rolesRepo:                 deps.Repositories.Roles,
+		usersRepo:                 deps.Repositories.Users,
+		sessionCache:              deps.SessionCache,
+		auditService:              deps.AuditService,
+		billingService:            deps.BillingService,
+		locationService:           deps.LocationService,
+		invitationsService:        deps.InvitationsService,
+	}
+}
+
+func (s *service) CreateOrganization(ctx context.Context, req *CreateOrganizationRequest, access *chi_types.AccessInfo) (*CreateOrganizationResponse, error) {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+
+	if access == nil {
+		return nil, chi_error.NewForbiddenError(errors.New("access required"), "Forbidden", nil)
+	}
+	if access.Type != chi_types.AccessTypeUser {
+		return nil, chi_error.NewForbiddenError(errors.New("api keys cannot create organizations"), "APICannotCreateOrganization", nil)
+	}
+
+	now := s.now()
+	orgID, err := s.generateID()
+	if err != nil {
+		return nil, err
+	}
+
+	locationData, err := s.locationService.GetLocationData(ctx, req.PlaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	locationID, err := s.generateID()
+	if err != nil {
+		return nil, err
+	}
+
+	orgLocation := &models.OrganizationLocation{
+		OrganizationID: orgID,
+	}
+	orgLocation.ID = locationID
+	orgLocation.CreatedAt = now
+	orgLocation.Address = locationData.Address
+	orgLocation.City = locationData.City
+	orgLocation.Zip = locationData.Zip
+	orgLocation.Country = locationData.Country
+	orgLocation.PlaceID = locationData.PlaceID
+	orgLocation.Geo = chi_types.Point{Lat: locationData.Geo.Lat, Lng: locationData.Geo.Lng}
+	orgLocation.Timezone = locationData.Timezone
+
+	org := &models.Organization{
+		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
+			ModelBase: chi_types.ModelBase{
+				ID:        orgID,
+				CreatedAt: now,
+			},
+		},
+		Name: strings.TrimSpace(req.Name),
+	}
+
+	billingAccountID, err := s.generateID()
+	if err != nil {
+		return nil, err
+	}
+
+	billingAccount := &models.OrganizationBillingAccount{
+		ModelBase: chi_types.ModelBase{
+			ID:        billingAccountID,
+			CreatedAt: now,
+		},
+		OrganizationID:              orgID,
+		BillingEmail:                req.BillingEmail,
+		Provider:                    constants.BILLING_PROVIDER_PADDLE,
+		SubscriptionTier:            constants.TIER_FREE,
+		SubscriptionSeats:           constants.SUBSCRIPTION_TYPE_SEATS_INCLUDED_FREE,
+		SubscriptionPaymentInterval: constants.PAYMENT_INTERVAL_MONTHLY,
+	}
+
+	providerCustomerID, paddleErr := s.billingService.CreateCustomer(ctx, &billing_service.CreateCustomerInput{
+		OrganizationID:   orgID.String(),
+		OrganizationName: org.Name,
+		BillingEmail:     req.BillingEmail,
+		Location:         orgLocation,
+	})
+	if paddleErr != nil {
+		return nil, paddleErr
+	}
+	billingAccount.ProviderCustomerID = providerCustomerID
+
+	roles := make([]models.Role, 0, len(constants.DefaultRolesToCreateForOrganization))
+	var ownerRoleID uuid.UUID
+
+	for i, roleTemplate := range constants.DefaultRolesToCreateForOrganization {
+		roleID, genErr := s.generateID()
+		if genErr != nil {
+			s.rollbackPaddleCustomer(ctx, orgID.String(), billingAccount)
+			return nil, genErr
+		}
+
+		role := roleTemplate
+		role.ID = roleID
+		role.CreatedAt = now
+		role.OrganizationID = orgID
+
+		if i == 0 {
+			ownerRoleID = roleID
+		}
+		roles = append(roles, role)
+	}
+
+	membershipID, genErr := s.generateID()
+	if genErr != nil {
+		s.rollbackPaddleCustomer(ctx, orgID.String(), billingAccount)
+		return nil, genErr
+	}
+
+	membership := models.OrganizationMember{
+		ModelBase: chi_types.ModelBase{
+			ID:        membershipID,
+			CreatedAt: now,
+		},
+		OrganizationID: orgID,
+		UserID:         access.SubjectID,
+		RoleID:         ownerRoleID,
+	}
+
+	if txErr := s.runInTx(ctx, func(tx chi_repository.Tx) error {
+		orgRepo := s.organizationsRepo.WithTx(tx)
+		if err := orgRepo.CreateOrganization(ctx, org); err != nil {
+			return err
+		}
+
+		if err := s.organizationLocationsRepo.WithTx(tx).CreateOrganizationLocation(ctx, orgLocation); err != nil {
+			return err
+		}
+
+		if err := s.billingAccountsRepo.WithTx(tx).CreateOrganizationBillingAccount(ctx, billingAccount); err != nil {
+			return err
+		}
+
+		rolesRepo := s.rolesRepo.WithTx(tx)
+		if err := rolesRepo.CreateRoles(ctx, &roles); err != nil {
+			return err
+		}
+
+		return s.organizationMembersRepo.WithTx(tx).CreateOrganizationMember(ctx, &membership)
+	}); txErr != nil {
+		s.rollbackPaddleCustomer(ctx, orgID.String(), billingAccount)
+		return nil, txErr
+	}
+
+	if err := s.sessionCache.InvalidateSession(ctx, access.SubjectID.String()); err != nil {
+		s.logger.WithContext(ctx).Error("failed to invalidate session", "error", err, "organizationId", org.ID.String())
+	}
+
+	s.logOrganizationAudit(ctx, access, org.ID.String(), constants.AUDIT_ACTION_TYPE_CREATE, org.Name, audit.CreatePayload(map[string]any{
+		"name":         org.Name,
+		"placeId":      orgLocation.PlaceID,
+		"billingEmail": billingAccount.BillingEmail,
+	}))
+
+	return &CreateOrganizationResponse{
+		Organization: org,
+		Roles:        &roles,
+		Member:       &membership,
+	}, nil
+}
+
+func (s *service) UpdateOrganization(ctx context.Context, req *UpdateOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error) {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+
+	org, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.authorizer.CheckOrganizationPermissionWithSubscription(access, billingAccount, constants.PERMISSION_ORG_WRITE); err != nil {
+		return nil, err
+	}
+
+	orgLocation, err := s.organizationLocationsRepo.GetOrganizationLocationByOrganizationID(ctx, req.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	previousOrg := *org
+	previousLocation := *orgLocation
+
+	updatedOrg := *org
+	updatedOrg.Name = strings.TrimSpace(req.Name)
+	updatedLocation := *orgLocation
+	if req.PlaceID != orgLocation.PlaceID {
+		locationData, locErr := s.locationService.GetLocationData(ctx, req.PlaceID)
+		if locErr != nil {
+			return nil, locErr
+		}
+		updatedLocation.Address = locationData.Address
+		updatedLocation.City = locationData.City
+		updatedLocation.Zip = locationData.Zip
+		updatedLocation.Country = locationData.Country
+		updatedLocation.PlaceID = locationData.PlaceID
+		updatedLocation.Geo = chi_types.Point{Lat: locationData.Geo.Lat, Lng: locationData.Geo.Lng}
+		updatedLocation.Timezone = locationData.Timezone
+	}
+
+	if paddleErr := s.billingService.UpdateCustomer(ctx, &billing_service.UpdateCustomerInput{
+		OrganizationID:   req.OrganizationID,
+		OrganizationName: updatedOrg.Name,
+		BillingAccount:   billingAccount,
+		Location:         &updatedLocation,
+	}); paddleErr != nil {
+		s.logger.WithContext(ctx).Error("failed to update paddle customer", "error", paddleErr, "organizationId", req.OrganizationID)
+		return nil, paddleErr
+	}
+
+	if txErr := s.runInTx(ctx, func(tx chi_repository.Tx) error {
+		if err := s.organizationsRepo.WithTx(tx).UpdateOrganization(ctx, &updatedOrg); err != nil {
+			return err
+		}
+		return s.organizationLocationsRepo.WithTx(tx).UpdateOrganizationLocation(ctx, &updatedLocation)
+	}); txErr != nil {
+		_ = s.billingService.UpdateCustomer(ctx, &billing_service.UpdateCustomerInput{
+			OrganizationID:   req.OrganizationID,
+			OrganizationName: previousOrg.Name,
+			BillingAccount:   billingAccount,
+			Location:         &previousLocation,
+		})
+		return nil, txErr
+	}
+
+	s.logOrganizationAudit(ctx, access, org.ID.String(), constants.AUDIT_ACTION_TYPE_UPDATE, updatedOrg.Name, audit.UpdatePayload(
+		map[string]any{
+			"name":    previousOrg.Name,
+			"placeId": previousLocation.PlaceID,
+		},
+		map[string]any{
+			"name":    updatedOrg.Name,
+			"placeId": updatedLocation.PlaceID,
+		},
+	))
+
+	return &updatedOrg, nil
+}
+
+func (s *service) UpdateOrganizationSubscription(ctx context.Context, req *UpdateOrganizationSubscriptionRequest, access *chi_types.AccessInfo) (*models.OrganizationBillingAccount, error) {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+
+	if err := s.authorizer.CheckPlatformAdmin(access); err != nil {
+		return nil, err
+	}
+
+	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
+		return nil, err
+	}
+
+	if err := platform_subscription.ValidateSubscriptionSeats(req.SubscriptionSeats, req.SubscriptionType); err != nil {
+		return nil, err
+	}
+
+	if !platform_subscription.IsUnlimitedSubscriptionSeats(req.SubscriptionSeats) {
+		members, listErr := s.organizationMembersRepo.ListByOrganizationID(ctx, req.OrganizationID)
+		if listErr != nil {
+			return nil, listErr
+		}
+		if len(*members) > req.SubscriptionSeats {
+			return nil, chi_error.NewUnprocessableEntityError(
+				errors.New("subscription seats below member count"),
+				"OrganizationSeatsBelowMemberCount",
+				map[string]any{"memberCount": len(*members), "subscriptionSeats": req.SubscriptionSeats},
+			)
+		}
+	}
+
+	account, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	provider := constants.BILLING_PROVIDER_PADDLE
+	if req.CustomSubscription {
+		provider = constants.BILLING_PROVIDER_CUSTOM
+	}
+
+	updatedAccount := *account
+	updatedAccount.Provider = provider
+	updatedAccount.SubscriptionTier = req.SubscriptionType
+	updatedAccount.SubscriptionSeats = req.SubscriptionSeats
+	expiresAt := req.SubscriptionExpiresAt
+	updatedAccount.SubscriptionExpiresAt = &expiresAt
+
+	if txErr := s.runInTx(ctx, func(tx chi_repository.Tx) error {
+		return s.billingAccountsRepo.WithTx(tx).UpdateOrganizationBillingAccount(ctx, &updatedAccount)
+	}); txErr != nil {
+		return nil, txErr
+	}
+
+	return &updatedAccount, nil
+}
+
+func (s *service) UpdateOrganizationMember(ctx context.Context, req *UpdateOrganizationMemberRequest, access *chi_types.AccessInfo) (*models.OrganizationMemberWithUser, error) {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+
+	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
+		return nil, err
+	}
+
+	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.authorizer.CheckOrganizationPermissionWithSubscription(access, billingAccount, constants.PERMISSION_MEMBERS_WRITE); err != nil {
+		return nil, err
+	}
+
+	member, err := s.organizationMembersRepo.GetOrganizationMemberByMembershipID(ctx, req.OrganizationID, req.MemberID)
+	if err != nil {
+		return nil, err
+	}
+
+	if access != nil && access.Type == chi_types.AccessTypeUser && member.UserID == access.SubjectID {
+		return nil, chi_error.NewForbiddenError(errors.New("cannot update own membership"), "UserCannotUpdateOwnMember", nil)
+	}
+
+	currentRole, err := s.rolesRepo.GetRoleByID(ctx, req.OrganizationID, member.RoleID.String())
+	if err != nil {
+		return nil, err
+	}
+
+	newRole, err := s.rolesRepo.GetRoleByID(ctx, req.OrganizationID, req.RoleID)
+	if err != nil {
+		return nil, err
+	}
+
+	member.RoleID = newRole.ID
+	if err := s.organizationMembersRepo.UpdateOrganizationMember(ctx, member); err != nil {
+		return nil, err
+	}
+
+	if err := s.sessionCache.InvalidateSession(ctx, member.UserID.String()); err != nil {
+		s.logger.WithContext(ctx).Error("failed to invalidate session", "error", err, "organizationId", req.OrganizationID)
+	}
+
+	memberWithUser, err := s.organizationMembersRepo.GetOrganizationMemberByMembershipIDWithUser(ctx, req.OrganizationID, req.MemberID)
+	if err != nil {
+		return nil, err
+	}
+
+	changes, _ := json.Marshal(audit.UpdatePayload(
+		map[string]any{"roleId": currentRole.ID, "roleName": currentRole.Name},
+		map[string]any{"roleId": newRole.ID, "roleName": newRole.Name},
+	))
+	changesRaw := json.RawMessage(changes)
+	resourceName := "Organization member"
+	s.createMemberAudit(ctx, access, req.OrganizationID, constants.AUDIT_ACTION_TYPE_UPDATE, member.ID.String(), resourceName, &changesRaw)
+
+	return memberWithUser, nil
+}
+
+func (s *service) ArchiveOrganization(ctx context.Context, req *ArchiveOrganizationRequest, access *chi_types.AccessInfo) error {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+
+	org, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID)
+	if err != nil {
+		return err
+	}
+
+	if err := s.authorizer.CheckOrganizationPermission(access, org.ID.String(), constants.PERMISSION_ORG_DELETE); err != nil {
+		return err
+	}
+
+	if err := s.organizationsRepo.ArchiveOrganization(ctx, org); err != nil {
+		return err
+	}
+
+	billingAccount, billingErr := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	if billingErr == nil && billingAccount.ProviderSubscriptionID != "" {
+		if cancelErr := s.billingService.CancelSubscription(ctx, billingAccount.ProviderSubscriptionID); cancelErr != nil {
+			s.logger.WithContext(ctx).Error("failed to cancel paddle subscription on archive", "error", cancelErr, "organizationId", org.ID.String())
+		}
+	}
+
+	s.logOrganizationAudit(ctx, access, org.ID.String(), constants.AUDIT_ACTION_TYPE_ARCHIVE, org.Name, map[string]any{})
+
+	return nil
+}
+
+func (s *service) RestoreOrganization(ctx context.Context, req *RestoreOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error) {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+
+	if err := s.authorizer.CheckPlatformAdmin(access); err != nil {
+		return nil, err
+	}
+
+	org, err := s.organizationsRepo.GetOrganizationByIDIncludeArchived(ctx, req.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if org.DeletedAt == nil {
+		return nil, chi_error.NewNotFoundError(errors.New("organization is not archived"), "NotFound", nil)
+	}
+
+	if err := s.organizationsRepo.RestoreOrganization(ctx, req.OrganizationID); err != nil {
+		return nil, err
+	}
+
+	restored, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	s.logOrganizationAudit(ctx, access, org.ID.String(), constants.AUDIT_ACTION_TYPE_RESTORE, restored.Name, map[string]any{})
+
+	return restored, nil
+}
+
+func (s *service) DeleteOrganizationMember(ctx context.Context, req *DeleteOrganizationMemberRequest, access *chi_types.AccessInfo) error {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+
+	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
+		return err
+	}
+
+	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	if err != nil {
+		return err
+	}
+
+	if err := s.authorizer.CheckOrganizationPermissionWithSubscription(access, billingAccount, constants.PERMISSION_MEMBERS_DELETE); err != nil {
+		return err
+	}
+
+	member, err := s.organizationMembersRepo.GetOrganizationMemberByMembershipID(ctx, req.OrganizationID, req.MemberID)
+	if err != nil {
+		return err
+	}
+
+	if err := s.ensureNotLastPrivilegedMember(ctx, req.OrganizationID, member); err != nil {
+		return err
+	}
+
+	if access.Type == chi_types.AccessTypeUser && member.UserID == access.SubjectID {
+		return chi_error.NewForbiddenError(errors.New("cannot remove own membership"), "UserCannotRemoveOwnMember", nil)
+	}
+
+	user, err := s.usersRepo.GetUserByID(ctx, member.UserID.String())
+	if err != nil {
+		return err
+	}
+
+	role, err := s.rolesRepo.GetRoleByID(ctx, req.OrganizationID, member.RoleID.String())
+	if err != nil {
+		return err
+	}
+
+	if err := s.organizationMembersRepo.DeleteOrganizationMemberByMembershipID(ctx, req.OrganizationID, req.MemberID); err != nil {
+		return err
+	}
+
+	if err := s.sessionCache.InvalidateSession(ctx, member.UserID.String()); err != nil {
+		s.logger.WithContext(ctx).Error("failed to invalidate session", "error", err, "organizationId", req.OrganizationID)
+	}
+
+	data, _ := json.Marshal(audit.DeletePayload(map[string]any{
+		"userId":    user.ID,
+		"userEmail": user.Email,
+		"roleId":    role.ID,
+		"roleName":  role.Name,
+	}))
+	dataRaw := json.RawMessage(data)
+	resourceName := "Organization member"
+	s.createMemberAudit(ctx, access, req.OrganizationID, constants.AUDIT_ACTION_TYPE_DELETE, member.ID.String(), resourceName, &dataRaw)
+
+	return nil
+}
+
+func (s *service) GetOrganization(ctx context.Context, req *GetOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error) {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+
+	org, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.authorizer.CheckOrganizationPermission(access, org.ID.String(), constants.PERMISSION_ORG_READ); err != nil {
+		if subErr := s.authorizer.CheckOrganizationPermission(access, org.ID.String(), constants.PERMISSION_SUBSCRIPTION_READ); subErr != nil {
+			return nil, err
+		}
+	}
+	return org, nil
+}
+
+func (s *service) GetArchivedOrganization(ctx context.Context, req *GetOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error) {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+	if err := s.authorizer.CheckPlatformAdmin(access); err != nil {
+		return nil, err
+	}
+	return s.organizationsRepo.GetOrganizationByIDIncludeArchived(ctx, req.OrganizationID)
+}
+
+func (s *service) ListOrganizations(ctx context.Context, req *ListOrganizationsRequest, access *chi_types.AccessInfo) (*ListOrganizationsResponse, error) {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+
+	if err := s.authorizer.CheckPlatformAdmin(access); err != nil {
+		return nil, err
+	}
+
+	filter := req.ArchiveFilter
+	if filter == "" {
+		filter = chi_archive.ArchiveFilterActive
+	}
+
+	orgs, err := s.organizationsRepo.SearchOrganizations(ctx, req.SearchPhrase, filter, req.Limit+1, req.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	hasNext := len(*orgs) > req.Limit
+	if hasNext {
+		items := (*orgs)[:req.Limit]
+		orgs = &items
+	}
+
+	return &ListOrganizationsResponse{
+		Items:   *orgs,
+		HasNext: hasNext,
+	}, nil
+}
+
+func (s *service) ListOrganizationMembers(ctx context.Context, req *ListOrganizationMembersRequest, access *chi_types.AccessInfo) (*[]models.OrganizationMemberWithUser, error) {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+
+	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
+		return nil, err
+	}
+
+	if err := s.authorizer.CheckOrganizationPermission(access, req.OrganizationID, constants.PERMISSION_MEMBERS_READ); err != nil {
+		return nil, err
+	}
+
+	return s.organizationMembersRepo.ListByOrganizationID(ctx, req.OrganizationID)
+}
+
+func (s *service) ListOrganizationRolesForUser(ctx context.Context, req *ListOrganizationRolesForUserRequest, access *chi_types.AccessInfo) (*[]models.OrganizationMemberWithOrganizationAndRole, error) {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+
+	if err := s.authorizer.CheckOwnResource(access, req.UserID); err != nil {
+		return nil, err
+	}
+
+	return s.organizationMembersRepo.ListByUserIDWithRole(ctx, req.UserID)
+}
+
+func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error) {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+	if err := s.authorizer.CheckPlatformAdmin(access); err != nil {
+		return nil, err
+	}
+
+	now := s.now()
+	orgID, err := s.generateID()
+	if err != nil {
+		return nil, err
+	}
+
+	locationData, err := s.locationService.GetLocationData(ctx, req.PlaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	locationID, err := s.generateID()
+	if err != nil {
+		return nil, err
+	}
+
+	orgLocation := &models.OrganizationLocation{
+		OrganizationID: orgID,
+	}
+	orgLocation.ID = locationID
+	orgLocation.CreatedAt = now
+	orgLocation.Address = locationData.Address
+	orgLocation.City = locationData.City
+	orgLocation.Zip = locationData.Zip
+	orgLocation.Country = locationData.Country
+	orgLocation.PlaceID = locationData.PlaceID
+	orgLocation.Geo = chi_types.Point{Lat: locationData.Geo.Lat, Lng: locationData.Geo.Lng}
+	orgLocation.Timezone = locationData.Timezone
+
+	org := &models.Organization{
+		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
+			ModelBase: chi_types.ModelBase{
+				ID:        orgID,
+				CreatedAt: now,
+			},
+		},
+		Name: strings.TrimSpace(req.Name),
+	}
+
+	billingAccountID, err := s.generateID()
+	if err != nil {
+		return nil, err
+	}
+
+	billingAccount := &models.OrganizationBillingAccount{
+		ModelBase: chi_types.ModelBase{
+			ID:        billingAccountID,
+			CreatedAt: now,
+		},
+		OrganizationID:              orgID,
+		BillingEmail:                req.BillingEmail,
+		Provider:                    constants.BILLING_PROVIDER_CUSTOM,
+		SubscriptionTier:            req.SubscriptionType,
+		SubscriptionSeats:           req.SubscriptionSeats,
+		SubscriptionPaymentInterval: constants.PAYMENT_INTERVAL_MONTHLY,
+		SubscriptionExpiresAt:       req.SubscriptionExpiresAt,
+	}
+
+	providerCustomerID, paddleErr := s.billingService.CreateCustomer(ctx, &billing_service.CreateCustomerInput{
+		OrganizationID:   orgID.String(),
+		OrganizationName: org.Name,
+		BillingEmail:     req.BillingEmail,
+		Location:         orgLocation,
+	})
+	if paddleErr != nil {
+		return nil, paddleErr
+	}
+	billingAccount.ProviderCustomerID = providerCustomerID
+
+	roles := make([]models.Role, 0, len(constants.DefaultRolesToCreateForOrganization))
+	var ownerRoleID uuid.UUID
+	for i, roleTemplate := range constants.DefaultRolesToCreateForOrganization {
+		roleID, genErr := s.generateID()
+		if genErr != nil {
+			s.rollbackPaddleCustomer(ctx, orgID.String(), billingAccount)
+			return nil, genErr
+		}
+		role := roleTemplate
+		role.ID = roleID
+		role.CreatedAt = now
+		role.OrganizationID = orgID
+		if i == 0 {
+			ownerRoleID = roleID
+		}
+		roles = append(roles, role)
+	}
+
+	emailLower := strings.ToLower(strings.TrimSpace(req.OwnerEmail))
+	existingUser, userErr := s.usersRepo.GetUserByEmail(ctx, emailLower)
+	if userErr != nil {
+		if apiErr, ok := userErr.(*chi_error.Error); !ok || apiErr.StatusCode != http.StatusNotFound {
+			s.rollbackPaddleCustomer(ctx, orgID.String(), billingAccount)
+			return nil, userErr
+		}
+		existingUser = nil
+	}
+
+	var membership *models.OrganizationMember
+	if existingUser != nil {
+		membershipID, genErr := s.generateID()
+		if genErr != nil {
+			s.rollbackPaddleCustomer(ctx, orgID.String(), billingAccount)
+			return nil, genErr
+		}
+		membership = &models.OrganizationMember{
+			ModelBase: chi_types.ModelBase{
+				ID:        membershipID,
+				CreatedAt: now,
+			},
+			OrganizationID: orgID,
+			UserID:         existingUser.ID,
+			RoleID:         ownerRoleID,
+		}
+	}
+
+	if txErr := s.runInTx(ctx, func(tx chi_repository.Tx) error {
+		orgRepo := s.organizationsRepo.WithTx(tx)
+		if err := orgRepo.CreateOrganization(ctx, org); err != nil {
+			return err
+		}
+		if err := s.organizationLocationsRepo.WithTx(tx).CreateOrganizationLocation(ctx, orgLocation); err != nil {
+			return err
+		}
+		if err := s.billingAccountsRepo.WithTx(tx).CreateOrganizationBillingAccount(ctx, billingAccount); err != nil {
+			return err
+		}
+		rolesRepo := s.rolesRepo.WithTx(tx)
+		if err := rolesRepo.CreateRoles(ctx, &roles); err != nil {
+			return err
+		}
+		if membership != nil {
+			return s.organizationMembersRepo.WithTx(tx).CreateOrganizationMember(ctx, membership)
+		}
+		return nil
+	}); txErr != nil {
+		s.rollbackPaddleCustomer(ctx, orgID.String(), billingAccount)
+		return nil, txErr
+	}
+
+	if existingUser == nil {
+		_, invErr := s.invitationsService.CreateInvitation(ctx, &invitation_service.CreateInvitationRequest{
+			Email:          req.OwnerEmail,
+			OrganizationID: org.ID.String(),
+			RoleID:         ownerRoleID.String(),
+			InvitedByID:    access.SubjectID.String(),
+			InvitedByEmail: access.Email,
+			Language:       req.Language,
+		}, access)
+		if invErr != nil {
+			if archiveErr := s.organizationsRepo.ArchiveOrganization(ctx, org); archiveErr != nil {
+				s.logger.WithContext(ctx).Error("failed to archive org after owner invitation failure", "error", archiveErr, "organizationId", org.ID.String())
+			}
+			s.logger.WithContext(ctx).Error("failed to send owner invitation", "error", invErr, "organizationId", org.ID.String())
+			return nil, invErr
+		}
+	} else if existingUser != nil && s.sessionCache != nil {
+		if err := s.sessionCache.InvalidateSession(ctx, existingUser.ID.String()); err != nil {
+			s.logger.WithContext(ctx).Error("failed to invalidate session", "error", err, "organizationId", org.ID.String())
+		}
+	}
+
+	return org, nil
+}
+
+func (s *service) CleanupArchivedOrganizations(ctx context.Context) error {
+	return s.organizationsRepo.CleanupArchivedOrganizations(ctx)
+}
+
+func (s *service) logOrganizationAudit(ctx context.Context, access *chi_types.AccessInfo, orgID, action, resourceName string, payload map[string]any) {
+	changes, err := json.Marshal(payload)
+	if err != nil {
+		s.logger.WithContext(ctx).Error("failed to marshal organization audit payload", "error", err, "organizationId", orgID)
+		return
+	}
+	changesRaw := json.RawMessage(changes)
+
+	if _, err := s.auditService.CreateAuditLog(ctx, &audit_service.CreateAuditLogRequest{
+		OrganizationID: orgID,
+		Action:         action,
+		ResourceType:   constants.RESOURCE_TYPE_ORGANIZATION,
+		ResourceID:     orgID,
+		ResourceName:   resourceName,
+		Data:           &changesRaw,
+	}, access); err != nil {
+		s.logger.WithContext(ctx).Error("failed to create organization audit log", "error", err, "organizationId", orgID)
+	}
+}
+
+func (s *service) createMemberAudit(ctx context.Context, access *chi_types.AccessInfo, orgID, action, resourceID, resourceName string, data *json.RawMessage) {
+	if _, err := s.auditService.CreateAuditLog(ctx, &audit_service.CreateAuditLogRequest{
+		OrganizationID: orgID,
+		Action:         action,
+		ResourceType:   constants.RESOURCE_TYPE_MEMBER,
+		ResourceID:     resourceID,
+		ResourceName:   resourceName,
+		Data:           data,
+	}, access); err != nil {
+		s.logger.WithContext(ctx).Error("failed to create member audit log", "error", err, "organizationId", orgID)
+	}
+}
+
+func (s *service) rollbackPaddleCustomer(ctx context.Context, organizationID string, billingAccount *models.OrganizationBillingAccount) {
+	if billingAccount == nil || billingAccount.ProviderCustomerID == "" {
+		return
+	}
+
+	if err := s.billingService.ReleaseProvisionedCustomer(ctx, organizationID, billingAccount); err != nil {
+		s.logger.WithContext(ctx).Error(
+			"failed to release paddle customer after org provision rollback",
+			"error", err,
+			"organizationId", organizationID,
+			"paddleCustomerId", billingAccount.ProviderCustomerID,
+		)
+	}
+}
+
+func (s *service) ensureNotLastPrivilegedMember(ctx context.Context, organizationID string, target *models.OrganizationMember) error {
+	members, err := s.organizationMembersRepo.ListByOrganizationID(ctx, organizationID)
+	if err != nil {
+		return err
+	}
+
+	targetRole, err := s.rolesRepo.GetRoleByID(ctx, organizationID, target.RoleID.String())
+	if err != nil {
+		return err
+	}
+	if !authz.RoleCanManageMembers(targetRole.Permissions) {
+		return nil
+	}
+
+	privilegedOthers := 0
+	for _, member := range *members {
+		if member.ID == target.ID {
+			continue
+		}
+		role, roleErr := s.rolesRepo.GetRoleByID(ctx, organizationID, member.RoleID.String())
+		if roleErr != nil {
+			return roleErr
+		}
+		if authz.RoleCanManageMembers(role.Permissions) {
+			privilegedOthers++
+		}
+	}
+	if privilegedOthers == 0 {
+		return chi_error.NewForbiddenError(errors.New("cannot remove last privileged member"), "OrganizationLastPrivilegedMember", nil)
+	}
+	return nil
+}

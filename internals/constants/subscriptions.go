@@ -1,0 +1,29 @@
+package constants
+
+const (
+	TIER_FREE       = "free"
+	TIER_BASIC      = "basic"
+	TIER_PRO        = "pro"
+	TIER_ENTERPRISE = "enterprise"
+
+	SUBSCRIPTION_TYPE_SEATS_INCLUDED_FREE       = 1
+	SUBSCRIPTION_TYPE_SEATS_INCLUDED_BASIC      = 5
+	SUBSCRIPTION_TYPE_SEATS_INCLUDED_PRO        = 25
+	SUBSCRIPTION_TYPE_SEATS_INCLUDED_ENTERPRISE = -1
+
+	PAYMENT_INTERVAL_MONTHLY = "monthly"
+	PAYMENT_INTERVAL_ANNUAL  = "annual"
+
+	PLAN_EFFECTIVE_IMMEDIATELY         = "immediately"
+	PLAN_EFFECTIVE_NEXT_BILLING_PERIOD = "next_billing_period"
+
+	BILLING_PROVIDER_PADDLE = "paddle"
+	BILLING_PROVIDER_CUSTOM = "custom"
+
+	SUBSCRIPTION_PAST_DUE_GRACE_DAYS = 7
+
+	PRICE_ID_BASIC_MONTHLY = "pri_basic_monthly"
+	PRICE_ID_BASIC_ANNUAL  = "pri_basic_annual"
+	PRICE_ID_PRO_MONTHLY   = "pri_pro_monthly"
+	PRICE_ID_PRO_ANNUAL    = "pri_pro_annual"
+)

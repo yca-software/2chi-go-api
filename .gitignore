@@ -1,0 +1,50 @@
+# Binaries
+/bin/
+/build/
+/dist/
+/out/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# Go build
+*.test
+*.out
+
+# Dependency directories
+vendor/
+
+# IDE/editor settings
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+
+# Coverage files
+coverage.*
+*.cov
+*.coverprofile
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Misc
+*.local
+node_modules/
+tmp/
+temp/
+
+# Go modules cache (just in case you have one here)
+.gomodcache/
+
+# Ignore template-generated outputs, if any
+templates/*.out

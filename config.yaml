@@ -1,0 +1,71 @@
+app:
+  name: "2Chi Go API"
+  namespace: "2chi-api"
+  web_url: "http://localhost:3000"
+  cookie_domain: "localhost"
+  environment: "local"
+  migrations_path: "./migrations"
+  locales_path: "./locales"
+  templates_path: "./templates"
+
+server:
+  port: 1300
+  metrics_port: 9091
+  cors_allow_origins:
+    - http://localhost:3000
+  body_limit: 50M
+  server_read_timeout: 15
+  server_write_timeout: 15
+  server_idle_timeout: 60
+
+logger:
+  level: "info"
+  format: "json"
+
+auth:
+  access_token_secret: ""
+  token_hash_pepper: ""
+
+postgres:
+  dsn: ""
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: 5
+  conn_max_idle_time: 10
+  ping_timeout: 5
+
+redis:
+  session_dsn: ""
+  rate_limit_dsn: ""
+
+aws:
+  default_region: "us-east-1"
+  default_endpoint: "http://localhost:4570"
+  ses:
+    from_email: "noreply@example.com"
+    from_name: "2Chi"
+
+jobs:
+  max_retries: 3
+  cleanup:
+    concurrency: 4
+    queue_url: "http://localhost:4570/0/queue/cleanup"
+  apply_scheduled_plan_changes:
+    concurrency: 4
+    queue_url: "http://localhost:4570/0/queue/apply-scheduled-plan-changes"
+
+support:
+  inbox_email: "support@example.com"
+
+google:
+  oauth:
+    client_id: ""
+    client_secret: ""
+    redirect_url: "http://localhost:3000/auth/google/callback"
+  maps:
+    api_key: ""
+
+paddle:
+  api_key: ""
+  webhook_secret: ""
+  environment: "sandbox"
