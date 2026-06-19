@@ -40,7 +40,7 @@ redis:
 
 aws:
   default_region: "us-east-1"
-  default_endpoint: "http://localhost:4570"
+  default_endpoint: "http://localhost:4566"
   ses:
     from_email: "noreply@example.com"
     from_name: "2Chi"
@@ -49,10 +49,10 @@ jobs:
   max_retries: 3
   cleanup:
     concurrency: 4
-    queue_url: "http://localhost:4570/0/queue/cleanup"
+    queue_url: "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/2chi-cleanup-local"
   apply_scheduled_plan_changes:
     concurrency: 4
-    queue_url: "http://localhost:4570/0/queue/apply-scheduled-plan-changes"
+    queue_url: "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/2chi-apply-scheduled-plan-changes-local"
 
 support:
   inbox_email: "support@example.com"
