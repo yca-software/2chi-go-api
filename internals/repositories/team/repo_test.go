@@ -19,7 +19,6 @@ import (
 	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_repository "github.com/yca-software/2chi-go-repository"
-	chi_test "github.com/yca-software/2chi-go-test"
 	chi_types "github.com/yca-software/2chi-go-types"
 )
 
@@ -35,9 +34,7 @@ const (
 var seedCreatedAtTime = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func TestMain(m *testing.M) {
-	code := m.Run()
-	chi_test.Cleanup()
-	os.Exit(code)
+	os.Exit(testutil.IntegrationTestMain(m))
 }
 
 func TestTeamsRepositorySuite(t *testing.T) {
@@ -53,7 +50,7 @@ type TeamsRepositorySuite struct {
 }
 
 func (s *TeamsRepositorySuite) SetupSuite() {
-	testDB, err := chi_test.Get(testutil.MigrationsDir())
+	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()

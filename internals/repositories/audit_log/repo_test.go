@@ -17,7 +17,6 @@ import (
 	audit_log_repository "github.com/yca-software/2chi-go-api/internals/repositories/audit_log"
 	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	chi_repository "github.com/yca-software/2chi-go-repository"
-	chi_test "github.com/yca-software/2chi-go-test"
 )
 
 const (
@@ -35,9 +34,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	code := m.Run()
-	chi_test.Cleanup()
-	os.Exit(code)
+	os.Exit(testutil.IntegrationTestMain(m))
 }
 
 func TestAuditLogsRepositorySuite(t *testing.T) {
@@ -53,7 +50,7 @@ type AuditLogsRepositorySuite struct {
 }
 
 func (s *AuditLogsRepositorySuite) SetupSuite() {
-	testDB, err := chi_test.Get(testutil.MigrationsDir())
+	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()

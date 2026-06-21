@@ -17,7 +17,6 @@ import (
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
 	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	chi_repository "github.com/yca-software/2chi-go-repository"
-	chi_test "github.com/yca-software/2chi-go-test"
 	chi_types "github.com/yca-software/2chi-go-types"
 )
 
@@ -36,9 +35,7 @@ const (
 var seedCreatedAtTime = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func TestMain(m *testing.M) {
-	code := m.Run()
-	chi_test.Cleanup()
-	os.Exit(code)
+	os.Exit(testutil.IntegrationTestMain(m))
 }
 
 func TestOrganizationBillingAccountsRepositorySuite(t *testing.T) {
@@ -54,7 +51,7 @@ type OrganizationBillingAccountsRepositorySuite struct {
 }
 
 func (s *OrganizationBillingAccountsRepositorySuite) SetupSuite() {
-	testDB, err := chi_test.Get(testutil.MigrationsDir())
+	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
@@ -76,9 +73,9 @@ INSERT INTO organization_billing_accounts (
 	provider_subscription_id, subscription_expires_at, subscription_scheduled_plan_price_id
 ) VALUES
 	('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbb401', '2024-01-01T00:00:00Z', '22222222-2222-2222-2222-222222222401',
-		'billing@example.com', 'paddle', 'paddle-cust-seed-401', 'free', 'monthly', 1),
+		'billing@example.com', 'paddle', 'paddle-cust-seed-401', 'free', 'monthly', 1, 'paddle-sub-placeholder-401', NULL, NULL),
 	('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbb402', '2024-01-01T00:00:00Z', '22222222-2222-2222-2222-222222222402',
-		'update@example.com', 'paddle', 'paddle-cust-update', 'free', 'monthly', 1),
+		'update@example.com', 'paddle', 'paddle-cust-update', 'free', 'monthly', 1, 'paddle-sub-placeholder-402', NULL, NULL),
 	('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbb405', '2024-01-01T00:00:00Z', '22222222-2222-2222-2222-222222222403',
 		'scheduled@example.com', 'paddle', 'paddle-cust-scheduled', 'pro', 'annual', 25,
 		'paddle-sub-scheduled', '2024-01-01T00:00:00Z', 'pri_scheduled_plan')`)

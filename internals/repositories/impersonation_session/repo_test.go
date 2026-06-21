@@ -16,7 +16,6 @@ import (
 	impersonation_session_repository "github.com/yca-software/2chi-go-api/internals/repositories/impersonation_session"
 	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	chi_repository "github.com/yca-software/2chi-go-repository"
-	chi_test "github.com/yca-software/2chi-go-test"
 )
 
 const (
@@ -33,9 +32,7 @@ const (
 var seedCreatedAtTime = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func TestMain(m *testing.M) {
-	code := m.Run()
-	chi_test.Cleanup()
-	os.Exit(code)
+	os.Exit(testutil.IntegrationTestMain(m))
 }
 
 func TestImpersonationSessionsRepositorySuite(t *testing.T) {
@@ -51,7 +48,7 @@ type ImpersonationSessionsRepositorySuite struct {
 }
 
 func (s *ImpersonationSessionsRepositorySuite) SetupSuite() {
-	testDB, err := chi_test.Get(testutil.MigrationsDir())
+	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()

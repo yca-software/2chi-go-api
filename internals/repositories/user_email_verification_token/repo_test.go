@@ -19,7 +19,6 @@ import (
 	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_repository "github.com/yca-software/2chi-go-repository"
-	chi_test "github.com/yca-software/2chi-go-test"
 	chi_types "github.com/yca-software/2chi-go-types"
 )
 
@@ -36,9 +35,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	code := m.Run()
-	chi_test.Cleanup()
-	os.Exit(code)
+	os.Exit(testutil.IntegrationTestMain(m))
 }
 
 func TestUserEmailVerificationTokenRepositorySuite(t *testing.T) {
@@ -54,7 +51,7 @@ type UserEmailVerificationTokenRepositorySuite struct {
 }
 
 func (s *UserEmailVerificationTokenRepositorySuite) SetupSuite() {
-	testDB, err := chi_test.Get(testutil.MigrationsDir())
+	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
