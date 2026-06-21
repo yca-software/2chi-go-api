@@ -226,12 +226,22 @@ func (s *TeamServiceSuite) TestAddTeamMember_Success() {
 		Return(&models.Team{
 			ModelBase:      chi_types.ModelBase{ID: teamID},
 			OrganizationID: s.orgID,
+			Name:           "Platform",
 		}, nil).Once()
 	s.membersRepo.On("GetOrganizationMemberByUserIDAndOrganizationID", s.ctx, userID.String(), s.orgID.String()).
 		Return(&models.OrganizationMember{}, nil).Once()
 	s.teamMembers.On("CreateTeamMember", s.ctx, mock.AnythingOfType("*models.TeamMember")).Return(nil).Once()
 	s.teamMembers.On("GetTeamMemberByIDWithUser", s.ctx, s.orgID.String(), mock.Anything).
-		Return(&models.TeamMemberWithUser{}, nil).Once()
+		Return(&models.TeamMemberWithUser{
+			TeamMember: models.TeamMember{
+				ModelBase:      chi_types.ModelBase{ID: uuid.New()},
+				OrganizationID: s.orgID,
+				TeamID:         teamID,
+				UserID:         userID,
+			},
+			UserEmail: "member@example.com",
+		}, nil).Once()
+	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Once()
 
 	access := s.writeAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_TEAM_MEMBER_WRITE}
@@ -248,14 +258,26 @@ func (s *TeamServiceSuite) TestAddTeamMember_Success() {
 func (s *TeamServiceSuite) TestRemoveTeamMember_Success() {
 	teamID := uuid.New()
 	memberID := uuid.New()
+	userID := uuid.New()
 	s.expectProOrg()
-	s.teamMembers.On("GetTeamMemberByID", s.ctx, s.orgID.String(), memberID.String()).
-		Return(&models.TeamMember{
-			ModelBase:      chi_types.ModelBase{ID: memberID},
+	s.teamMembers.On("GetTeamMemberByIDWithUser", s.ctx, s.orgID.String(), memberID.String()).
+		Return(&models.TeamMemberWithUser{
+			TeamMember: models.TeamMember{
+				ModelBase:      chi_types.ModelBase{ID: memberID},
+				OrganizationID: s.orgID,
+				TeamID:         teamID,
+				UserID:         userID,
+			},
+			UserEmail: "member@example.com",
+		}, nil).Once()
+	s.teamsRepo.On("GetTeamByID", s.ctx, s.orgID.String(), teamID.String()).
+		Return(&models.Team{
+			ModelBase:      chi_types.ModelBase{ID: teamID},
 			OrganizationID: s.orgID,
-			TeamID:         teamID,
+			Name:           "Platform",
 		}, nil).Once()
 	s.teamMembers.On("DeleteTeamMember", s.ctx, s.orgID.String(), memberID.String()).Return(nil).Once()
+	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Once()
 
 	access := s.writeAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_TEAM_MEMBER_DELETE}

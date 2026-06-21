@@ -249,7 +249,8 @@ func (s *service) AddTeamMember(ctx context.Context, req *AddTeamMemberRequest, 
 		return nil, err
 	}
 
-	if _, err := s.teamsRepo.GetTeamByID(ctx, req.OrganizationID, req.TeamID); err != nil {
+	team, err := s.teamsRepo.GetTeamByID(ctx, req.OrganizationID, req.TeamID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -276,7 +277,19 @@ func (s *service) AddTeamMember(ctx context.Context, req *AddTeamMemberRequest, 
 		return nil, err
 	}
 
-	return s.teamMembersRepo.GetTeamMemberByIDWithUser(ctx, req.OrganizationID, memberID.String())
+	createdMember, err := s.teamMembersRepo.GetTeamMemberByIDWithUser(ctx, req.OrganizationID, memberID.String())
+	if err != nil {
+		return nil, err
+	}
+
+	s.logTeamMemberAudit(ctx, access, req.OrganizationID, constants.AUDIT_ACTION_TYPE_CREATE, createdMember, team, audit.CreatePayload(map[string]any{
+		"userId":    createdMember.UserID,
+		"userEmail": createdMember.UserEmail,
+		"teamId":    team.ID,
+		"teamName":  team.Name,
+	}))
+
+	return createdMember, nil
 }
 
 func (s *service) RemoveTeamMember(ctx context.Context, req *RemoveTeamMemberRequest, access *chi_types.AccessInfo) error {
@@ -300,11 +313,28 @@ func (s *service) RemoveTeamMember(ctx context.Context, req *RemoveTeamMemberReq
 		return err
 	}
 
-	if _, err := s.teamMembersRepo.GetTeamMemberByID(ctx, req.OrganizationID, req.MemberID); err != nil {
+	member, err := s.teamMembersRepo.GetTeamMemberByIDWithUser(ctx, req.OrganizationID, req.MemberID)
+	if err != nil {
 		return err
 	}
 
-	return s.teamMembersRepo.DeleteTeamMember(ctx, req.OrganizationID, req.MemberID)
+	team, err := s.teamsRepo.GetTeamByID(ctx, req.OrganizationID, req.TeamID)
+	if err != nil {
+		return err
+	}
+
+	if err := s.teamMembersRepo.DeleteTeamMember(ctx, req.OrganizationID, req.MemberID); err != nil {
+		return err
+	}
+
+	s.logTeamMemberAudit(ctx, access, req.OrganizationID, constants.AUDIT_ACTION_TYPE_DELETE, member, team, audit.DeletePayload(map[string]any{
+		"userId":    member.UserID,
+		"userEmail": member.UserEmail,
+		"teamId":    team.ID,
+		"teamName":  team.Name,
+	}))
+
+	return nil
 }
 
 func (s *service) ListTeamMembers(ctx context.Context, req *ListTeamMembersRequest, access *chi_types.AccessInfo) (*[]models.TeamMemberWithUser, error) {
@@ -333,6 +363,29 @@ func (s *service) ListTeamMembers(ctx context.Context, req *ListTeamMembersReque
 	}
 
 	return s.teamMembersRepo.ListTeamMembersByTeamID(ctx, req.OrganizationID, req.TeamID)
+}
+
+func (s *service) logTeamMemberAudit(ctx context.Context, access *chi_types.AccessInfo, orgID, action string, member *models.TeamMemberWithUser, team *models.Team, payload map[string]any) {
+	changes, err := json.Marshal(payload)
+	if err != nil {
+		s.logger.WithContext(ctx).Error("failed to marshal team member audit payload", "error", err, "organizationId", orgID)
+		return
+	}
+	changesRaw := json.RawMessage(changes)
+	resourceName := member.UserEmail
+	if resourceName == "" {
+		resourceName = "Team member"
+	}
+	if _, err := s.auditService.CreateAuditLog(ctx, &audit_service.CreateAuditLogRequest{
+		OrganizationID: orgID,
+		Action:         action,
+		ResourceType:   constants.RESOURCE_TYPE_TEAM_MEMBER,
+		ResourceID:     member.ID.String(),
+		ResourceName:   resourceName,
+		Data:           &changesRaw,
+	}, access); err != nil {
+		s.logger.WithContext(ctx).Error("failed to create team member audit log", "error", err, "organizationId", orgID)
+	}
 }
 
 func (s *service) logTeamAudit(ctx context.Context, access *chi_types.AccessInfo, orgID, action string, team *models.Team, payload map[string]any) {

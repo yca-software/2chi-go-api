@@ -12,5 +12,6 @@ const (
 
 	LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE = "terms_of_service"
 	LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY   = "privacy_policy"
-	USER_IDENTITY_PROVIDER_GOOGLE        = "google"
+
+	USER_IDENTITY_PROVIDER_GOOGLE = "google"
 )

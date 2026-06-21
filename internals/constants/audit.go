@@ -10,6 +10,7 @@ const (
 	RESOURCE_TYPE_ORGANIZATION = "organization"
 	RESOURCE_TYPE_MEMBER       = "member"
 	RESOURCE_TYPE_TEAM         = "team"
+	RESOURCE_TYPE_TEAM_MEMBER  = "team_member"
 	RESOURCE_TYPE_ROLE         = "role"
 	RESOURCE_TYPE_API_KEY      = "api_key"
 	RESOURCE_TYPE_SUBSCRIPTION = "subscription"
