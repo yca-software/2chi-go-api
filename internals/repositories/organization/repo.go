@@ -18,7 +18,7 @@ const (
 )
 
 var (
-	OrganizationsColumns = []string{"id", "created_at", "updated_at", "deleted_at", "name"}
+	OrganizationsColumns = []string{"id", "created_at", "updated_at", "deleted_at", "name", "address", "city", "zip", "country", "place_id", "geo", "timezone"}
 )
 
 type OrganizationsRepository interface {
@@ -76,6 +76,13 @@ func (r *organizationsRepository) CreateOrganization(ctx context.Context, organi
 		"created_at": now,
 		"updated_at": now,
 		"name":       organization.Name,
+		"address":    organization.Address,
+		"city":       organization.City,
+		"zip":        organization.Zip,
+		"country":    organization.Country,
+		"place_id":   organization.PlaceID,
+		"geo":        organization.Geo,
+		"timezone":   organization.Timezone,
 	})
 }
 
@@ -83,6 +90,13 @@ func (r *organizationsRepository) UpdateOrganization(ctx context.Context, organi
 	return r.organizationsRepo.Update(ctx, squirrel.Eq{"id": organization.ID, "deleted_at": nil}, map[string]any{
 		"name":       organization.Name,
 		"updated_at": time.Now(),
+		"address":    organization.Address,
+		"city":       organization.City,
+		"zip":        organization.Zip,
+		"country":    organization.Country,
+		"place_id":   organization.PlaceID,
+		"geo":        organization.Geo,
+		"timezone":   organization.Timezone,
 	})
 }
 

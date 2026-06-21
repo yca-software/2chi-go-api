@@ -16,7 +16,6 @@ import (
 	platform_subscription "github.com/yca-software/2chi-go-api/internals/packages/subscription"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
-	organization_location_repository "github.com/yca-software/2chi-go-api/internals/repositories/location"
 	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
 	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
 	role_repository "github.com/yca-software/2chi-go-api/internals/repositories/role"
@@ -73,23 +72,22 @@ type Service interface {
 }
 
 type service struct {
-	generateID                func() (uuid.UUID, error)
-	now                       func() time.Time
-	validator                 chi_validator.Validator
-	logger                    chi_logger.Logger
-	runInTx                   repositories.TxRunner
-	authorizer                *authz.Authorizer
-	organizationsRepo         organization_repository.OrganizationsRepository
-	organizationLocationsRepo organization_location_repository.OrganizationLocationsRepository
-	organizationMembersRepo   organization_member_repository.OrganizationMembersRepository
-	billingAccountsRepo       billing_account_repository.OrganizationBillingAccountsRepository
-	rolesRepo                 role_repository.RolesRepository
-	usersRepo                 user_repository.UsersRepository
-	sessionCache              *authz.SessionCache
-	auditService              audit_service.Service
-	billingService            billing_service.Service
-	locationService           location_service.Service
-	invitationsService        invitation_service.Service
+	generateID              func() (uuid.UUID, error)
+	now                     func() time.Time
+	validator               chi_validator.Validator
+	logger                  chi_logger.Logger
+	runInTx                 repositories.TxRunner
+	authorizer              *authz.Authorizer
+	organizationsRepo       organization_repository.OrganizationsRepository
+	organizationMembersRepo organization_member_repository.OrganizationMembersRepository
+	billingAccountsRepo     billing_account_repository.OrganizationBillingAccountsRepository
+	rolesRepo               role_repository.RolesRepository
+	usersRepo               user_repository.UsersRepository
+	sessionCache            *authz.SessionCache
+	auditService            audit_service.Service
+	billingService          billing_service.Service
+	locationService         location_service.Service
+	invitationsService      invitation_service.Service
 }
 
 func New(deps Dependencies) Service {
@@ -98,23 +96,22 @@ func New(deps Dependencies) Service {
 		runInTx = deps.Repositories.RunInTx
 	}
 	return &service{
-		generateID:                deps.GenerateID,
-		now:                       deps.Now,
-		validator:                 deps.Validator,
-		logger:                    deps.Logger,
-		runInTx:                   runInTx,
-		authorizer:                deps.Authorizer,
-		organizationsRepo:         deps.Repositories.Organizations,
-		organizationLocationsRepo: deps.Repositories.OrganizationLocations,
-		organizationMembersRepo:   deps.Repositories.OrganizationMembers,
-		billingAccountsRepo:       deps.Repositories.OrganizationBillingAccounts,
-		rolesRepo:                 deps.Repositories.Roles,
-		usersRepo:                 deps.Repositories.Users,
-		sessionCache:              deps.SessionCache,
-		auditService:              deps.AuditService,
-		billingService:            deps.BillingService,
-		locationService:           deps.LocationService,
-		invitationsService:        deps.InvitationsService,
+		generateID:              deps.GenerateID,
+		now:                     deps.Now,
+		validator:               deps.Validator,
+		logger:                  deps.Logger,
+		runInTx:                 runInTx,
+		authorizer:              deps.Authorizer,
+		organizationsRepo:       deps.Repositories.Organizations,
+		organizationMembersRepo: deps.Repositories.OrganizationMembers,
+		billingAccountsRepo:     deps.Repositories.OrganizationBillingAccounts,
+		rolesRepo:               deps.Repositories.Roles,
+		usersRepo:               deps.Repositories.Users,
+		sessionCache:            deps.SessionCache,
+		auditService:            deps.AuditService,
+		billingService:          deps.BillingService,
+		locationService:         deps.LocationService,
+		invitationsService:      deps.InvitationsService,
 	}
 }
 
@@ -141,24 +138,6 @@ func (s *service) CreateOrganization(ctx context.Context, req *CreateOrganizatio
 		return nil, err
 	}
 
-	locationID, err := s.generateID()
-	if err != nil {
-		return nil, err
-	}
-
-	orgLocation := &models.OrganizationLocation{
-		OrganizationID: orgID,
-	}
-	orgLocation.ID = locationID
-	orgLocation.CreatedAt = now
-	orgLocation.Address = locationData.Address
-	orgLocation.City = locationData.City
-	orgLocation.Zip = locationData.Zip
-	orgLocation.Country = locationData.Country
-	orgLocation.PlaceID = locationData.PlaceID
-	orgLocation.Geo = chi_types.Point{Lat: locationData.Geo.Lat, Lng: locationData.Geo.Lng}
-	orgLocation.Timezone = locationData.Timezone
-
 	org := &models.Organization{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{
@@ -166,7 +145,14 @@ func (s *service) CreateOrganization(ctx context.Context, req *CreateOrganizatio
 				CreatedAt: now,
 			},
 		},
-		Name: strings.TrimSpace(req.Name),
+		Name:     strings.TrimSpace(req.Name),
+		Address:  locationData.Address,
+		City:     locationData.City,
+		Zip:      locationData.Zip,
+		Country:  locationData.Country,
+		PlaceID:  locationData.PlaceID,
+		Geo:      chi_types.Point{Lat: locationData.Geo.Lat, Lng: locationData.Geo.Lng},
+		Timezone: locationData.Timezone,
 	}
 
 	billingAccountID, err := s.generateID()
@@ -191,7 +177,11 @@ func (s *service) CreateOrganization(ctx context.Context, req *CreateOrganizatio
 		OrganizationID:   orgID.String(),
 		OrganizationName: org.Name,
 		BillingEmail:     req.BillingEmail,
-		Location:         orgLocation,
+		Address:          org.Address,
+		City:             org.City,
+		Zip:              org.Zip,
+		Country:          org.Country,
+		Timezone:         org.Timezone,
 	})
 	if paddleErr != nil {
 		return nil, paddleErr
@@ -241,10 +231,6 @@ func (s *service) CreateOrganization(ctx context.Context, req *CreateOrganizatio
 			return err
 		}
 
-		if err := s.organizationLocationsRepo.WithTx(tx).CreateOrganizationLocation(ctx, orgLocation); err != nil {
-			return err
-		}
-
 		if err := s.billingAccountsRepo.WithTx(tx).CreateOrganizationBillingAccount(ctx, billingAccount); err != nil {
 			return err
 		}
@@ -266,7 +252,7 @@ func (s *service) CreateOrganization(ctx context.Context, req *CreateOrganizatio
 
 	s.logOrganizationAudit(ctx, access, org.ID.String(), constants.AUDIT_ACTION_TYPE_CREATE, org.Name, audit.CreatePayload(map[string]any{
 		"name":         org.Name,
-		"placeId":      orgLocation.PlaceID,
+		"placeId":      org.PlaceID,
 		"billingEmail": billingAccount.BillingEmail,
 	}))
 
@@ -296,36 +282,33 @@ func (s *service) UpdateOrganization(ctx context.Context, req *UpdateOrganizatio
 		return nil, err
 	}
 
-	orgLocation, err := s.organizationLocationsRepo.GetOrganizationLocationByOrganizationID(ctx, req.OrganizationID)
-	if err != nil {
-		return nil, err
-	}
-
 	previousOrg := *org
-	previousLocation := *orgLocation
 
 	updatedOrg := *org
 	updatedOrg.Name = strings.TrimSpace(req.Name)
-	updatedLocation := *orgLocation
-	if req.PlaceID != orgLocation.PlaceID {
+	if req.PlaceID != org.PlaceID {
 		locationData, locErr := s.locationService.GetLocationData(ctx, req.PlaceID)
 		if locErr != nil {
 			return nil, locErr
 		}
-		updatedLocation.Address = locationData.Address
-		updatedLocation.City = locationData.City
-		updatedLocation.Zip = locationData.Zip
-		updatedLocation.Country = locationData.Country
-		updatedLocation.PlaceID = locationData.PlaceID
-		updatedLocation.Geo = chi_types.Point{Lat: locationData.Geo.Lat, Lng: locationData.Geo.Lng}
-		updatedLocation.Timezone = locationData.Timezone
+		updatedOrg.Address = locationData.Address
+		updatedOrg.City = locationData.City
+		updatedOrg.Zip = locationData.Zip
+		updatedOrg.Country = locationData.Country
+		updatedOrg.PlaceID = locationData.PlaceID
+		updatedOrg.Geo = chi_types.Point{Lat: locationData.Geo.Lat, Lng: locationData.Geo.Lng}
+		updatedOrg.Timezone = locationData.Timezone
 	}
 
 	if paddleErr := s.billingService.UpdateCustomer(ctx, &billing_service.UpdateCustomerInput{
 		OrganizationID:   req.OrganizationID,
 		OrganizationName: updatedOrg.Name,
 		BillingAccount:   billingAccount,
-		Location:         &updatedLocation,
+		Address:          updatedOrg.Address,
+		City:             updatedOrg.City,
+		Zip:              updatedOrg.Zip,
+		Country:          updatedOrg.Country,
+		Timezone:         updatedOrg.Timezone,
 	}); paddleErr != nil {
 		s.logger.WithContext(ctx).Error("failed to update paddle customer", "error", paddleErr, "organizationId", req.OrganizationID)
 		return nil, paddleErr
@@ -335,13 +318,17 @@ func (s *service) UpdateOrganization(ctx context.Context, req *UpdateOrganizatio
 		if err := s.organizationsRepo.WithTx(tx).UpdateOrganization(ctx, &updatedOrg); err != nil {
 			return err
 		}
-		return s.organizationLocationsRepo.WithTx(tx).UpdateOrganizationLocation(ctx, &updatedLocation)
+		return nil
 	}); txErr != nil {
 		_ = s.billingService.UpdateCustomer(ctx, &billing_service.UpdateCustomerInput{
 			OrganizationID:   req.OrganizationID,
 			OrganizationName: previousOrg.Name,
 			BillingAccount:   billingAccount,
-			Location:         &previousLocation,
+			Address:          previousOrg.Address,
+			City:             previousOrg.City,
+			Zip:              previousOrg.Zip,
+			Country:          previousOrg.Country,
+			Timezone:         previousOrg.Timezone,
 		})
 		return nil, txErr
 	}
@@ -349,11 +336,11 @@ func (s *service) UpdateOrganization(ctx context.Context, req *UpdateOrganizatio
 	s.logOrganizationAudit(ctx, access, org.ID.String(), constants.AUDIT_ACTION_TYPE_UPDATE, updatedOrg.Name, audit.UpdatePayload(
 		map[string]any{
 			"name":    previousOrg.Name,
-			"placeId": previousLocation.PlaceID,
+			"placeId": previousOrg.PlaceID,
 		},
 		map[string]any{
 			"name":    updatedOrg.Name,
-			"placeId": updatedLocation.PlaceID,
+			"placeId": updatedOrg.PlaceID,
 		},
 	))
 
@@ -704,24 +691,6 @@ func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateO
 		return nil, err
 	}
 
-	locationID, err := s.generateID()
-	if err != nil {
-		return nil, err
-	}
-
-	orgLocation := &models.OrganizationLocation{
-		OrganizationID: orgID,
-	}
-	orgLocation.ID = locationID
-	orgLocation.CreatedAt = now
-	orgLocation.Address = locationData.Address
-	orgLocation.City = locationData.City
-	orgLocation.Zip = locationData.Zip
-	orgLocation.Country = locationData.Country
-	orgLocation.PlaceID = locationData.PlaceID
-	orgLocation.Geo = chi_types.Point{Lat: locationData.Geo.Lat, Lng: locationData.Geo.Lng}
-	orgLocation.Timezone = locationData.Timezone
-
 	org := &models.Organization{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{
@@ -729,7 +698,14 @@ func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateO
 				CreatedAt: now,
 			},
 		},
-		Name: strings.TrimSpace(req.Name),
+		Name:     strings.TrimSpace(req.Name),
+		Address:  locationData.Address,
+		City:     locationData.City,
+		Zip:      locationData.Zip,
+		Country:  locationData.Country,
+		PlaceID:  locationData.PlaceID,
+		Geo:      chi_types.Point{Lat: locationData.Geo.Lat, Lng: locationData.Geo.Lng},
+		Timezone: locationData.Timezone,
 	}
 
 	billingAccountID, err := s.generateID()
@@ -755,7 +731,11 @@ func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateO
 		OrganizationID:   orgID.String(),
 		OrganizationName: org.Name,
 		BillingEmail:     req.BillingEmail,
-		Location:         orgLocation,
+		Address:          org.Address,
+		City:             org.City,
+		Zip:              org.Zip,
+		Country:          org.Country,
+		Timezone:         org.Timezone,
 	})
 	if paddleErr != nil {
 		return nil, paddleErr
@@ -811,9 +791,6 @@ func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateO
 	if txErr := s.runInTx(ctx, func(tx chi_repository.Tx) error {
 		orgRepo := s.organizationsRepo.WithTx(tx)
 		if err := orgRepo.CreateOrganization(ctx, org); err != nil {
-			return err
-		}
-		if err := s.organizationLocationsRepo.WithTx(tx).CreateOrganizationLocation(ctx, orgLocation); err != nil {
 			return err
 		}
 		if err := s.billingAccountsRepo.WithTx(tx).CreateOrganizationBillingAccount(ctx, billingAccount); err != nil {

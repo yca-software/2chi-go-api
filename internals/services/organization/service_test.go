@@ -14,7 +14,6 @@ import (
 	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
-	organization_location_repository "github.com/yca-software/2chi-go-api/internals/repositories/location"
 	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
 	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
 	role_repository "github.com/yca-software/2chi-go-api/internals/repositories/role"
@@ -38,9 +37,8 @@ type OrganizationServiceSuite struct {
 	ctx              context.Context
 	now              time.Time
 	userID           uuid.UUID
-	orgRepo          *organization_repository.MockOrganizationsRepository
-	orgLocationsRepo *organization_location_repository.MockOrganizationLocationsRepository
-	orgMembersRepo   *organization_member_repository.MockOrganizationMembersRepository
+	orgRepo        *organization_repository.MockOrganizationsRepository
+	orgMembersRepo *organization_member_repository.MockOrganizationMembersRepository
 	billingAccounts  *billing_account_repository.MockOrganizationBillingAccountsRepository
 	rolesRepo        *role_repository.MockRolesRepository
 	usersRepo        *user_repository.MockUsersRepository
@@ -62,7 +60,6 @@ func (s *OrganizationServiceSuite) SetupTest() {
 	s.userID = uuid.MustParse("018f1234-5678-7abc-8def-012345678901")
 
 	s.orgRepo = &organization_repository.MockOrganizationsRepository{}
-	s.orgLocationsRepo = &organization_location_repository.MockOrganizationLocationsRepository{}
 	s.orgMembersRepo = &organization_member_repository.MockOrganizationMembersRepository{}
 	s.billingAccounts = &billing_account_repository.MockOrganizationBillingAccountsRepository{}
 	s.rolesRepo = &role_repository.MockRolesRepository{}
@@ -81,7 +78,6 @@ func (s *OrganizationServiceSuite) SetupTest() {
 		Authorizer: authz.NewAuthorizer(func() time.Time { return s.now }),
 		Repositories: &repositories.Repositories{
 			Organizations:               s.orgRepo,
-			OrganizationLocations:       s.orgLocationsRepo,
 			OrganizationMembers:         s.orgMembersRepo,
 			OrganizationBillingAccounts: s.billingAccounts,
 			Roles:                       s.rolesRepo,
@@ -134,15 +130,6 @@ func (s *OrganizationServiceSuite) organization(orgID uuid.UUID, name string) *m
 	}
 }
 
-func (s *OrganizationServiceSuite) organizationLocation(orgID uuid.UUID, placeID string) *models.OrganizationLocation {
-	loc := &models.OrganizationLocation{
-		OrganizationID: orgID,
-	}
-	loc.ID = uuid.New()
-	loc.PlaceID = placeID
-	return loc
-}
-
 func (s *OrganizationServiceSuite) basicBillingAccount(orgID uuid.UUID) *models.OrganizationBillingAccount {
 	expiresAt := s.now.Add(24 * time.Hour)
 	return &models.OrganizationBillingAccount{
@@ -181,7 +168,6 @@ func (s *OrganizationServiceSuite) expectBasicBillingAccount(orgID uuid.UUID) *m
 
 func (s *OrganizationServiceSuite) setupCreateOrgTxMocks() {
 	s.orgRepo.On("WithTx", mock.Anything).Return(s.orgRepo)
-	s.orgLocationsRepo.On("WithTx", mock.Anything).Return(s.orgLocationsRepo)
 	s.billingAccounts.On("WithTx", mock.Anything).Return(s.billingAccounts)
 	s.rolesRepo.On("WithTx", mock.Anything).Return(s.rolesRepo)
 	s.orgMembersRepo.On("WithTx", mock.Anything).Return(s.orgMembersRepo)
@@ -225,7 +211,6 @@ func (s *OrganizationServiceSuite) TestCreateOrganization_Success() {
 	s.billingSvc.On("CreateCustomer", s.ctx, mock.AnythingOfType("*billing_service.CreateCustomerInput")).Return("ctm_123", nil).Once()
 	s.setupCreateOrgTxMocks()
 	s.orgRepo.On("CreateOrganization", s.ctx, mock.AnythingOfType("*models.Organization")).Return(nil).Once()
-	s.orgLocationsRepo.On("CreateOrganizationLocation", s.ctx, mock.AnythingOfType("*models.OrganizationLocation")).Return(nil).Once()
 	s.billingAccounts.On("CreateOrganizationBillingAccount", s.ctx, mock.AnythingOfType("*models.OrganizationBillingAccount")).Return(nil).Once()
 	s.rolesRepo.On("CreateRoles", s.ctx, mock.AnythingOfType("*[]models.Role")).Return(nil).Once()
 	s.orgMembersRepo.On("CreateOrganizationMember", s.ctx, mock.AnythingOfType("*models.OrganizationMember")).Return(nil).Once()
@@ -270,14 +255,12 @@ func (s *OrganizationServiceSuite) TestCreateOrganization_DBFailure() {
 func (s *OrganizationServiceSuite) TestUpdateOrganization_DBFailure() {
 	orgID := uuid.New()
 	existing := s.organization(orgID, "Old")
-	orgLocation := s.organizationLocation(orgID, "place_old")
+	existing.PlaceID = "place_old"
 
 	s.billingSvc.On("UpdateCustomer", s.ctx, mock.AnythingOfType("*billing_service.UpdateCustomerInput")).Return(nil).Twice()
 	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).Return(existing, nil).Once()
 	s.expectBasicBillingAccount(orgID).Once()
-	s.orgLocationsRepo.On("GetOrganizationLocationByOrganizationID", s.ctx, orgID.String()).Return(orgLocation, nil).Once()
 	s.orgRepo.On("WithTx", mock.Anything).Return(s.orgRepo)
-	s.orgLocationsRepo.On("WithTx", mock.Anything).Return(s.orgLocationsRepo)
 	s.orgRepo.On("UpdateOrganization", s.ctx, mock.AnythingOfType("*models.Organization")).
 		Return(errors.New("update failed")).Once()
 
@@ -321,16 +304,13 @@ func (s *OrganizationServiceSuite) TestGetOrganization_Success() {
 func (s *OrganizationServiceSuite) TestUpdateOrganization_Success() {
 	orgID := uuid.New()
 	existing := s.organization(orgID, "Old")
-	orgLocation := s.organizationLocation(orgID, "place_old")
+	existing.PlaceID = "place_old"
 
 	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).Return(existing, nil).Once()
 	s.expectBasicBillingAccount(orgID).Once()
-	s.orgLocationsRepo.On("GetOrganizationLocationByOrganizationID", s.ctx, orgID.String()).Return(orgLocation, nil).Once()
 	s.billingSvc.On("UpdateCustomer", s.ctx, mock.AnythingOfType("*billing_service.UpdateCustomerInput")).Return(nil).Once()
 	s.orgRepo.On("WithTx", mock.Anything).Return(s.orgRepo)
-	s.orgLocationsRepo.On("WithTx", mock.Anything).Return(s.orgLocationsRepo)
 	s.orgRepo.On("UpdateOrganization", s.ctx, mock.AnythingOfType("*models.Organization")).Return(nil).Once()
-	s.orgLocationsRepo.On("UpdateOrganizationLocation", s.ctx, mock.AnythingOfType("*models.OrganizationLocation")).Return(nil).Once()
 	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
 	result, err := s.svc.UpdateOrganization(s.ctx, &organization_service.UpdateOrganizationRequest{

@@ -65,14 +65,14 @@ func (s *OrganizationsRepositorySuite) SetupSuite() {
 
 func (s *OrganizationsRepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
-INSERT INTO organizations (id, created_at, deleted_at, name) VALUES
-	('22222222-2222-2222-2222-222222222001', '2024-01-01T00:00:00Z', NULL, 'Active Org'),
-	('22222222-2222-2222-2222-222222222002', '2024-01-01T00:00:00Z', NULL, 'Update Org'),
-	('22222222-2222-2222-2222-222222222003', '2024-01-01T00:00:00Z', NULL, 'Archive Org'),
-	('22222222-2222-2222-2222-222222222004', '2024-01-01T00:00:00Z', '2026-06-06T00:00:00Z', 'Restore Org'),
-	('22222222-2222-2222-2222-222222222005', '2024-01-01T00:00:00Z', '2026-06-06T00:00:00Z', 'Archived Org'),
-	('22222222-2222-2222-2222-222222222006', '2024-01-01T00:00:00Z', '2020-01-01T00:00:00Z', 'Stale Org'),
-	('22222222-2222-2222-2222-222222222007', '2024-01-01T00:00:00Z', NULL, 'FindMeActive Org')`)
+INSERT INTO organizations (id, created_at, deleted_at, name, address, city, zip, country, place_id, geo, timezone) VALUES
+	('22222222-2222-2222-2222-222222222001', '2024-01-01T00:00:00Z', NULL, 'Active Org', '1 Main St', 'Oslo', '0001', 'NO', 'place_seed_001', ST_SetSRID(ST_MakePoint(10.7, 59.9), 4326), 'Europe/Oslo'),
+	('22222222-2222-2222-2222-222222222002', '2024-01-01T00:00:00Z', NULL, 'Update Org', '1 Main St', 'Oslo', '0001', 'NO', 'place_seed_002', ST_SetSRID(ST_MakePoint(10.7, 59.9), 4326), 'Europe/Oslo'),
+	('22222222-2222-2222-2222-222222222003', '2024-01-01T00:00:00Z', NULL, 'Archive Org', '1 Main St', 'Oslo', '0001', 'NO', 'place_seed_003', ST_SetSRID(ST_MakePoint(10.7, 59.9), 4326), 'Europe/Oslo'),
+	('22222222-2222-2222-2222-222222222004', '2024-01-01T00:00:00Z', '2026-06-06T00:00:00Z', 'Restore Org', '1 Main St', 'Oslo', '0001', 'NO', 'place_seed_004', ST_SetSRID(ST_MakePoint(10.7, 59.9), 4326), 'Europe/Oslo'),
+	('22222222-2222-2222-2222-222222222005', '2024-01-01T00:00:00Z', '2026-06-06T00:00:00Z', 'Archived Org', '1 Main St', 'Oslo', '0001', 'NO', 'place_seed_005', ST_SetSRID(ST_MakePoint(10.7, 59.9), 4326), 'Europe/Oslo'),
+	('22222222-2222-2222-2222-222222222006', '2024-01-01T00:00:00Z', '2020-01-01T00:00:00Z', 'Stale Org', '1 Main St', 'Oslo', '0001', 'NO', 'place_seed_006', ST_SetSRID(ST_MakePoint(10.7, 59.9), 4326), 'Europe/Oslo'),
+	('22222222-2222-2222-2222-222222222007', '2024-01-01T00:00:00Z', NULL, 'FindMeActive Org', '1 Main St', 'Oslo', '0001', 'NO', 'place_seed_007', ST_SetSRID(ST_MakePoint(10.7, 59.9), 4326), 'Europe/Oslo')`)
 	s.Require().NoError(err)
 }
 
@@ -89,7 +89,14 @@ func (s *OrganizationsRepositorySuite) TestCreateOrganization() {
 				CreatedAt: seedCreatedAtTime,
 			},
 		},
-		Name: "New Org",
+		Name:     "New Org",
+		Address:  "2 Side St",
+		City:     "Oslo",
+		Zip:      "0002",
+		Country:  "NO",
+		PlaceID:  "place_new",
+		Geo:      chi_types.Point{Lat: 59.9, Lng: 10.7},
+		Timezone: "Europe/Oslo",
 	}
 	s.Require().NoError(s.repo.CreateOrganization(s.ctx, org))
 
@@ -141,7 +148,14 @@ func (s *OrganizationsRepositorySuite) TestWithTx() {
 				CreatedAt: seedCreatedAtTime,
 			},
 		},
-		Name: "Tx Org",
+		Name:     "Tx Org",
+		Address:  "3 Tx St",
+		City:     "Oslo",
+		Zip:      "0003",
+		Country:  "NO",
+		PlaceID:  "place_tx",
+		Geo:      chi_types.Point{Lat: 59.9, Lng: 10.7},
+		Timezone: "Europe/Oslo",
 	}
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
 		return s.repo.WithTx(tx).CreateOrganization(s.ctx, org)

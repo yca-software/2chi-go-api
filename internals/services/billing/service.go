@@ -88,13 +88,11 @@ func (s *service) customerInput(input *CreateCustomerInput) chi_paddle_customer.
 		OrganizationID: input.OrganizationID,
 		Name:           input.OrganizationName,
 		BillingEmail:   input.BillingEmail,
-	}
-	if input.Location != nil {
-		req.Address = input.Location.Address
-		req.City = input.Location.City
-		req.Zip = input.Location.Zip
-		req.Country = input.Location.Country
-		req.Timezone = input.Location.Timezone
+		Address:        input.Address,
+		City:           input.City,
+		Zip:            input.Zip,
+		Country:        input.Country,
+		Timezone:       input.Timezone,
 	}
 	return req
 }
@@ -137,7 +135,11 @@ func (s *service) UpdateCustomer(ctx context.Context, input *UpdateCustomerInput
 		OrganizationID:   input.OrganizationID,
 		OrganizationName: input.OrganizationName,
 		BillingEmail:     input.BillingAccount.BillingEmail,
-		Location:         input.Location,
+		Address:          input.Address,
+		City:             input.City,
+		Zip:              input.Zip,
+		Country:          input.Country,
+		Timezone:         input.Timezone,
 	}
 	_, err := s.paddleCustomer.UpdateCustomer(ctx, input.BillingAccount.ProviderCustomerID, s.customerInput(createInput))
 	return err

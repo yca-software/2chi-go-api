@@ -8,14 +8,22 @@ type CreateCustomerInput struct {
 	OrganizationID   string
 	OrganizationName string
 	BillingEmail     string
-	Location         *models.OrganizationLocation
+	Address          string
+	City             string
+	Zip              string
+	Country          string
+	Timezone         string
 }
 
 type UpdateCustomerInput struct {
 	OrganizationID   string
 	OrganizationName string
 	BillingAccount   *models.OrganizationBillingAccount
-	Location         *models.OrganizationLocation
+	Address          string
+	City             string
+	Zip              string
+	Country          string
+	Timezone         string
 }
 
 type CreateCheckoutSessionRequest struct {

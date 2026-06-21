@@ -10,9 +10,8 @@ import (
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
 	impersonation_session_repository "github.com/yca-software/2chi-go-api/internals/repositories/impersonation_session"
 	invitation_repository "github.com/yca-software/2chi-go-api/internals/repositories/invitation"
-	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
-	organization_location_repository "github.com/yca-software/2chi-go-api/internals/repositories/location"
 	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
+	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
 	role_repository "github.com/yca-software/2chi-go-api/internals/repositories/role"
 	team_repository "github.com/yca-software/2chi-go-api/internals/repositories/team"
 	team_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/team_member"
@@ -38,7 +37,6 @@ type Repositories struct {
 	ImpersonationSessions        impersonation_session_repository.ImpersonationSessionsRepository
 	Invitations                  invitation_repository.InvitationsRepository
 	OrganizationBillingAccounts  billing_account_repository.OrganizationBillingAccountsRepository
-	OrganizationLocations        organization_location_repository.OrganizationLocationsRepository
 	OrganizationMembers          organization_member_repository.OrganizationMembersRepository
 	Organizations                organization_repository.OrganizationsRepository
 	Roles                        role_repository.RolesRepository
@@ -63,7 +61,6 @@ func NewRepositories(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) *Re
 		ImpersonationSessions:        impersonation_session_repository.NewImpersonationSessionsRepository(db, metricsHook),
 		Invitations:                  invitation_repository.NewInvitationsRepository(db, metricsHook),
 		OrganizationBillingAccounts:  billing_account_repository.NewOrganizationBillingAccountsRepository(db, metricsHook),
-		OrganizationLocations:        organization_location_repository.NewOrganizationLocationsRepository(db, metricsHook),
 		OrganizationMembers:          organization_member_repository.NewOrganizationMembersRepository(db, metricsHook),
 		Organizations:                organization_repository.NewOrganizationsRepository(db, metricsHook),
 		Roles:                        role_repository.NewRolesRepository(db, metricsHook),
