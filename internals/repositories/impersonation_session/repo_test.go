@@ -1,10 +1,10 @@
+//go:build integration
+
 package impersonation_session_repository_test
 
 import (
 	"context"
 	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -14,6 +14,7 @@ import (
 
 	"github.com/yca-software/2chi-go-api/internals/models"
 	impersonation_session_repository "github.com/yca-software/2chi-go-api/internals/repositories/impersonation_session"
+	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	chi_repository "github.com/yca-software/2chi-go-repository"
 	chi_test "github.com/yca-software/2chi-go-test"
 )
@@ -30,14 +31,6 @@ const (
 )
 
 var seedCreatedAtTime = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-
-func moduleMigrationsDir() string {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", "..", "..", "..", "migrations"))
-}
 
 func TestMain(m *testing.M) {
 	code := m.Run()
@@ -58,7 +51,7 @@ type ImpersonationSessionsRepositorySuite struct {
 }
 
 func (s *ImpersonationSessionsRepositorySuite) SetupSuite() {
-	testDB, err := chi_test.Get(moduleMigrationsDir())
+	testDB, err := chi_test.Get(testutil.MigrationsDir())
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()

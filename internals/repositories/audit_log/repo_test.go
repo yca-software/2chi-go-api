@@ -1,11 +1,11 @@
+//go:build integration
+
 package audit_log_repository_test
 
 import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -15,6 +15,7 @@ import (
 
 	"github.com/yca-software/2chi-go-api/internals/models"
 	audit_log_repository "github.com/yca-software/2chi-go-api/internals/repositories/audit_log"
+	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	chi_repository "github.com/yca-software/2chi-go-repository"
 	chi_test "github.com/yca-software/2chi-go-test"
 )
@@ -32,14 +33,6 @@ var (
 	seedAuditFilterStart = time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC)
 	seedAuditFilterEnd   = time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC)
 )
-
-func moduleMigrationsDir() string {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", "..", "..", "..", "migrations"))
-}
 
 func TestMain(m *testing.M) {
 	code := m.Run()
@@ -60,7 +53,7 @@ type AuditLogsRepositorySuite struct {
 }
 
 func (s *AuditLogsRepositorySuite) SetupSuite() {
-	testDB, err := chi_test.Get(moduleMigrationsDir())
+	testDB, err := chi_test.Get(testutil.MigrationsDir())
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()

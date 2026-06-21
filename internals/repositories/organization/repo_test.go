@@ -1,3 +1,5 @@
+//go:build integration
+
 package organization_repository_test
 
 import (
@@ -5,8 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -16,6 +16,7 @@ import (
 
 	"github.com/yca-software/2chi-go-api/internals/models"
 	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
+	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	chi_archive "github.com/yca-software/2chi-go-archive"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_repository "github.com/yca-software/2chi-go-repository"
@@ -36,14 +37,6 @@ const (
 
 var seedCreatedAtTime = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
-func moduleMigrationsDir() string {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", "..", "..", "..", "migrations"))
-}
-
 func TestMain(m *testing.M) {
 	code := m.Run()
 	chi_test.Cleanup()
@@ -63,7 +56,7 @@ type OrganizationsRepositorySuite struct {
 }
 
 func (s *OrganizationsRepositorySuite) SetupSuite() {
-	testDB, err := chi_test.Get(moduleMigrationsDir())
+	testDB, err := chi_test.Get(testutil.MigrationsDir())
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()

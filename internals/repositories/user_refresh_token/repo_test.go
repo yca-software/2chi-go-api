@@ -1,3 +1,5 @@
+//go:build integration
+
 package user_refresh_token_repository_test
 
 import (
@@ -5,8 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -16,6 +16,7 @@ import (
 
 	"github.com/yca-software/2chi-go-api/internals/models"
 	user_refresh_token_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_refresh_token"
+	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_repository "github.com/yca-software/2chi-go-repository"
 	chi_test "github.com/yca-software/2chi-go-test"
@@ -40,14 +41,6 @@ var (
 	seedTokenExpiresFuture = time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 )
 
-func moduleMigrationsDir() string {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", "..", "..", "..", "migrations"))
-}
-
 func TestMain(m *testing.M) {
 	code := m.Run()
 	chi_test.Cleanup()
@@ -67,7 +60,7 @@ type UserRefreshTokenRepositorySuite struct {
 }
 
 func (s *UserRefreshTokenRepositorySuite) SetupSuite() {
-	testDB, err := chi_test.Get(moduleMigrationsDir())
+	testDB, err := chi_test.Get(testutil.MigrationsDir())
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()

@@ -1,3 +1,5 @@
+//go:build integration
+
 package team_repository_test
 
 import (
@@ -5,8 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -16,6 +16,7 @@ import (
 
 	"github.com/yca-software/2chi-go-api/internals/models"
 	team_repository "github.com/yca-software/2chi-go-api/internals/repositories/team"
+	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_repository "github.com/yca-software/2chi-go-repository"
 	chi_test "github.com/yca-software/2chi-go-test"
@@ -32,14 +33,6 @@ const (
 )
 
 var seedCreatedAtTime = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-
-func moduleMigrationsDir() string {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", "..", "..", "..", "migrations"))
-}
 
 func TestMain(m *testing.M) {
 	code := m.Run()
@@ -60,7 +53,7 @@ type TeamsRepositorySuite struct {
 }
 
 func (s *TeamsRepositorySuite) SetupSuite() {
-	testDB, err := chi_test.Get(moduleMigrationsDir())
+	testDB, err := chi_test.Get(testutil.MigrationsDir())
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()

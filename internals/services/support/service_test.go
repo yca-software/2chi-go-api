@@ -2,13 +2,13 @@ package support_service_test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 	support_service "github.com/yca-software/2chi-go-api/internals/services/support"
+	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	chi_aws_ses "github.com/yca-software/2chi-go-aws/ses"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_template "github.com/yca-software/2chi-go-template"
@@ -33,12 +33,11 @@ func (s *SupportServiceSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.emailSender = &chi_aws_ses.MockSES{}
 	s.logger = &chi_logger.MockLogger{}
-	templatesPath := filepath.Join("..", "..", "..", "..", "..", "templates")
 	s.svc = support_service.New(support_service.Dependencies{
 		Validator:         chi_validator.New(),
 		Logger:            s.logger,
 		EmailSender:       s.emailSender,
-		EmailTemplates:    chi_template.NewHTML(templatesPath),
+		EmailTemplates:    chi_template.NewHTML(testutil.TemplatesDir()),
 		SupportInboxEmail: "support@example.com",
 	})
 	s.access = &chi_types.AccessInfo{

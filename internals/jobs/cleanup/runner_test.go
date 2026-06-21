@@ -3,6 +3,7 @@ package cleanup_runner_test
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -19,13 +20,13 @@ func TestCleanupRunnerSuite(t *testing.T) {
 }
 
 func (s *CleanupRunnerSuite) TestRun_AllStepsSucceed() {
-	var calls int
+	var calls atomic.Int32
 	runner := cleanup_runner.NewCleanupRunner(testLogger(),
-		cleanup_runner.CleanupStep{Name: "a", Run: func(context.Context) error { calls++; return nil }},
-		cleanup_runner.CleanupStep{Name: "b", Run: func(context.Context) error { calls++; return nil }},
+		cleanup_runner.CleanupStep{Name: "a", Run: func(context.Context) error { calls.Add(1); return nil }},
+		cleanup_runner.CleanupStep{Name: "b", Run: func(context.Context) error { calls.Add(1); return nil }},
 	)
 	s.NoError(runner.Run(context.Background()))
-	s.Equal(2, calls)
+	s.Equal(int32(2), calls.Load())
 }
 
 func (s *CleanupRunnerSuite) TestRun_StepErrorDoesNotFailJob() {
