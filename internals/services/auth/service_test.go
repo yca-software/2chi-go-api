@@ -2,6 +2,7 @@ package auth_service_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	admin_access_repository "github.com/yca-software/2chi-go-api/internals/repositories/admin_access"
 	user_repository "github.com/yca-software/2chi-go-api/internals/repositories/user"
 	user_email_verification_token_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_email_verification_token"
+	user_legal_document_acceptance_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_legal_document_acceptance"
 	user_password_reset_token_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_password_reset_token"
 	user_refresh_token_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_refresh_token"
 	auth_service "github.com/yca-software/2chi-go-api/internals/services/auth"
@@ -41,6 +43,7 @@ type AuthServiceSuite struct {
 	refreshTokensRepo *user_refresh_token_repository.MockUserRefreshTokenRepository
 	passwordResetRepo *user_password_reset_token_repository.MockUserPasswordResetTokenRepository
 	emailVerifyRepo   *user_email_verification_token_repository.MockUserEmailVerificationTokenRepository
+	legalAcceptRepo   *user_legal_document_acceptance_repository.MockUserLegalDocumentAcceptanceRepository
 	impersonationRepo *impersonation_session_repository.MockImpersonationSessionsRepository
 	invitationsRepo   *invitation_repository.MockInvitationsRepository
 	orgsRepo          *organization_repository.MockOrganizationsRepository
@@ -62,6 +65,7 @@ func (s *AuthServiceSuite) SetupTest() {
 	s.refreshTokensRepo = &user_refresh_token_repository.MockUserRefreshTokenRepository{}
 	s.passwordResetRepo = &user_password_reset_token_repository.MockUserPasswordResetTokenRepository{}
 	s.emailVerifyRepo = &user_email_verification_token_repository.MockUserEmailVerificationTokenRepository{}
+	s.legalAcceptRepo = &user_legal_document_acceptance_repository.MockUserLegalDocumentAcceptanceRepository{}
 	s.impersonationRepo = &impersonation_session_repository.MockImpersonationSessionsRepository{}
 	s.invitationsRepo = &invitation_repository.MockInvitationsRepository{}
 	s.orgsRepo = &organization_repository.MockOrganizationsRepository{}
@@ -85,6 +89,7 @@ func (s *AuthServiceSuite) SetupTest() {
 			UserRefreshTokens:           s.refreshTokensRepo,
 			UserPasswordResetTokens:     s.passwordResetRepo,
 			UserEmailVerificationTokens: s.emailVerifyRepo,
+			UserLegalDocumentAcceptances: s.legalAcceptRepo,
 			ImpersonationSessions:       s.impersonationRepo,
 			Invitations:                 s.invitationsRepo,
 			Organizations:               s.orgsRepo,
@@ -104,7 +109,8 @@ func (s *AuthServiceSuite) TestSignUp_Validation_InvalidEmail() {
 		LastName:     "Lovelace",
 		Email:        "not-an-email",
 		Password:     "password123",
-		TermsVersion: "1.0.0",
+		TermsVersion:         "1.0.0",
+		PrivacyPolicyVersion: "1.0.0",
 		Language:     "en",
 		IPAddress:    "127.0.0.1",
 		UserAgent:    "test",
@@ -128,7 +134,8 @@ func (s *AuthServiceSuite) TestSignUp_EmailAlreadyInUse() {
 		LastName:     "Lovelace",
 		Email:        "taken@example.com",
 		Password:     "password123",
-		TermsVersion: "1.0.0",
+		TermsVersion:         "1.0.0",
+		PrivacyPolicyVersion: "1.0.0",
 		Language:     "en",
 		IPAddress:    "127.0.0.1",
 		UserAgent:    "test",
@@ -138,6 +145,131 @@ func (s *AuthServiceSuite) TestSignUp_EmailAlreadyInUse() {
 	if apiErr, ok := chi_error.AsError(err); ok {
 		s.Equal("EmailAlreadyInUse", apiErr.ErrorCode)
 	}
+}
+
+func (s *AuthServiceSuite) TestSignUp_Success_RecordsBothLegalAcceptancesInTransaction() {
+	signUpUserID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	s.usersRepo.On("GetUserByEmail", s.ctx, "new@example.com").
+		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
+	s.usersRepo.On("CreateUser", s.ctx, mock.MatchedBy(func(u *models.User) bool {
+		return u.ID == signUpUserID && u.Email == "new@example.com"
+	})).Return(nil).Once()
+	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+		return a.UserID == signUpUserID &&
+			a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE &&
+			a.DocumentVersion == "1.0.0"
+	})).Return(nil).Once()
+	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+		return a.UserID == signUpUserID &&
+			a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY &&
+			a.DocumentVersion == "1.0.0"
+	})).Return(nil).Once()
+	s.mockAuthSessionLoad(signUpUserID, "new@example.com")
+	s.refreshTokensRepo.On("CreateRefreshToken", s.ctx, mock.AnythingOfType("*models.UserRefreshToken")).Return(nil).Once()
+	s.emailVerifyRepo.On("CreateEmailVerificationToken", s.ctx, mock.AnythingOfType("*models.UserEmailVerificationToken")).Return(nil).Once()
+
+	signUpUserIDCalls := 0
+	svc := auth_service.New(auth_service.Dependencies{
+		GenerateID: func() (uuid.UUID, error) {
+			if signUpUserIDCalls == 0 {
+				signUpUserIDCalls++
+				return signUpUserID, nil
+			}
+			return uuid.NewV7()
+		},
+		Now:        func() time.Time { return s.now },
+		Validator:  chi_validator.New(),
+		Logger:     s.logger,
+		PasswordHashFn: chi_password.Hash,
+		GenerateToken:  chi_token.GenerateOpaqueToken,
+		HashToken:      testTokenHasher.Hash,
+		Authorizer:     authz.NewAuthorizer(func() time.Time { return s.now }),
+		Repositories: &repositories.Repositories{
+			Users:                       s.usersRepo,
+			UserRefreshTokens:           s.refreshTokensRepo,
+			UserPasswordResetTokens:     s.passwordResetRepo,
+			UserEmailVerificationTokens: s.emailVerifyRepo,
+			UserLegalDocumentAcceptances: s.legalAcceptRepo,
+			ImpersonationSessions:       s.impersonationRepo,
+			Invitations:                 s.invitationsRepo,
+			Organizations:               s.orgsRepo,
+			AdminAccess:                 s.adminAccessRepo,
+			OrganizationMembers:         s.membersRepo,
+		},
+		RunInTx:           inlineRunInTx,
+		SessionCache:      s.sessionCache,
+		AccessTokenSecret: "test-secret-key-at-least-32-bytes-long",
+		AppURL:            "https://app.example.com",
+	})
+
+	resp, err := svc.SignUp(s.ctx, &auth_service.SignUpRequest{
+		FirstName:            "Ada",
+		LastName:             "Lovelace",
+		Email:                "new@example.com",
+		Password:             "password123",
+		TermsVersion:         "1.0.0",
+		PrivacyPolicyVersion: "1.0.0",
+		Language:             "en",
+		IPAddress:            "127.0.0.1",
+		UserAgent:            "test",
+	})
+	s.Require().NoError(err)
+	s.NotEmpty(resp.AccessToken)
+	s.NotEmpty(resp.RefreshToken)
+}
+
+func (s *AuthServiceSuite) TestSignUp_PrivacyAcceptanceFailureDoesNotIssueTokens() {
+	signUpUserID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	s.usersRepo.On("GetUserByEmail", s.ctx, "new@example.com").
+		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
+	s.usersRepo.On("CreateUser", s.ctx, mock.AnythingOfType("*models.User")).Return(nil).Once()
+	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+		return a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE
+	})).Return(nil).Once()
+	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+		return a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY
+	})).Return(errors.New("privacy acceptance failed")).Once()
+
+	signUpUserIDCalls := 0
+	svc := auth_service.New(auth_service.Dependencies{
+		GenerateID: func() (uuid.UUID, error) {
+			if signUpUserIDCalls == 0 {
+				signUpUserIDCalls++
+				return signUpUserID, nil
+			}
+			return uuid.NewV7()
+		},
+		Now:        func() time.Time { return s.now },
+		Validator:  chi_validator.New(),
+		Logger:     s.logger,
+		PasswordHashFn: chi_password.Hash,
+		GenerateToken:  chi_token.GenerateOpaqueToken,
+		HashToken:      testTokenHasher.Hash,
+		Authorizer:     authz.NewAuthorizer(func() time.Time { return s.now }),
+		Repositories: &repositories.Repositories{
+			Users:                        s.usersRepo,
+			UserLegalDocumentAcceptances: s.legalAcceptRepo,
+		},
+		RunInTx:           inlineRunInTx,
+		SessionCache:      s.sessionCache,
+		AccessTokenSecret: "test-secret-key-at-least-32-bytes-long",
+		AppURL:            "https://app.example.com",
+	})
+
+	resp, err := svc.SignUp(s.ctx, &auth_service.SignUpRequest{
+		FirstName:            "Ada",
+		LastName:             "Lovelace",
+		Email:                "new@example.com",
+		Password:             "password123",
+		TermsVersion:         "1.0.0",
+		PrivacyPolicyVersion: "1.0.0",
+		Language:             "en",
+		IPAddress:            "127.0.0.1",
+		UserAgent:            "test",
+	})
+	s.Error(err)
+	s.Nil(resp)
+	s.refreshTokensRepo.AssertNotCalled(s.T(), "CreateRefreshToken", mock.Anything, mock.Anything)
 }
 
 func (s *AuthServiceSuite) TestAuthenticateWithPassword_Validation_MissingEmail() {
@@ -154,7 +286,8 @@ func (s *AuthServiceSuite) TestAuthenticateWithPassword_Validation_MissingEmail(
 func (s *AuthServiceSuite) TestAuthenticateWithGoogle_OAuthNotConfigured() {
 	resp, err := s.svc.AuthenticateWithGoogle(s.ctx, &auth_service.AuthenticateWithGoogleRequest{
 		Code:         "code",
-		TermsVersion: "1.0.0",
+		TermsVersion:         "1.0.0",
+		PrivacyPolicyVersion: "1.0.0",
 		IPAddress:    "127.0.0.1",
 		UserAgent:    "test",
 		Language:     "en",

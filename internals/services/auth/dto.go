@@ -13,12 +13,13 @@ type AuthenticateWithPasswordRequest struct {
 }
 
 type AuthenticateWithGoogleRequest struct {
-	Code            string `json:"code" validate:"required"`
-	TermsVersion    string `json:"termsVersion" validate:"required,semver"`
-	InvitationToken string `json:"invitationToken"`
-	IPAddress       string `json:"ipAddress" validate:"required,ip"`
-	UserAgent       string `json:"userAgent" validate:"required"`
-	Language        string `json:"language" validate:"required,len=2"`
+	Code                 string `json:"code" validate:"required"`
+	TermsVersion         string `json:"termsVersion" validate:"required,semver"`
+	PrivacyPolicyVersion string `json:"privacyPolicyVersion" validate:"required,semver"`
+	InvitationToken      string `json:"invitationToken"`
+	IPAddress            string `json:"ipAddress" validate:"required,ip"`
+	UserAgent            string `json:"userAgent" validate:"required"`
+	Language             string `json:"language" validate:"required,len=2"`
 }
 
 type ForgotPasswordRequest struct {
@@ -46,15 +47,16 @@ type ResetPasswordRequest struct {
 }
 
 type SignUpRequest struct {
-	Email           string `json:"email" validate:"required,email"`
-	Password        string `json:"password" validate:"required"`
-	FirstName       string `json:"firstName" validate:"required"`
-	LastName        string `json:"lastName" validate:"required"`
-	Language        string `json:"-" validate:"required,len=2"`
-	IPAddress       string `json:"ipAddress" validate:"required,ip"`
-	UserAgent       string `json:"userAgent" validate:"required"`
-	TermsVersion    string `json:"termsVersion" validate:"required,semver"`
-	InvitationToken string `json:"invitationToken"`
+	Email                string `json:"email" validate:"required,email"`
+	Password             string `json:"password" validate:"required"`
+	FirstName            string `json:"firstName" validate:"required"`
+	LastName             string `json:"lastName" validate:"required"`
+	Language             string `json:"-" validate:"required,len=2"`
+	IPAddress            string `json:"ipAddress" validate:"required,ip"`
+	UserAgent            string `json:"userAgent" validate:"required"`
+	TermsVersion         string `json:"termsVersion" validate:"required,semver"`
+	PrivacyPolicyVersion string `json:"privacyPolicyVersion" validate:"required,semver"`
+	InvitationToken      string `json:"invitationToken"`
 }
 
 type SignUpResponse struct {

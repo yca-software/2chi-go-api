@@ -433,10 +433,10 @@ func (s *service) SignUp(ctx context.Context, req *SignUpRequest) (*SignUpRespon
 	}
 
 	if req.InvitationToken != "" {
-		if err := s.signUpUserWithInvitation(ctx, req.InvitationToken, emailLower, user, req.TermsVersion); err != nil {
+		if err := s.signUpUserWithInvitation(ctx, req.InvitationToken, emailLower, user, req.TermsVersion, req.PrivacyPolicyVersion); err != nil {
 			return nil, err
 		}
-	} else if err := s.createUserWithTermsAcceptance(ctx, user, req.TermsVersion); err != nil {
+	} else if err := s.createUserWithLegalAcceptances(ctx, user, req.TermsVersion, req.PrivacyPolicyVersion); err != nil {
 		return nil, err
 	}
 
@@ -701,7 +701,7 @@ func (s *service) resolveOrCreateGoogleUser(
 			return nil, err
 		}
 		if req.InvitationToken != "" {
-			if err := s.acceptInvitationForUser(ctx, req.InvitationToken, emailLower, user); err != nil {
+			if err := s.acceptInvitationForUser(ctx, req.InvitationToken, emailLower, user, req.TermsVersion, req.PrivacyPolicyVersion); err != nil {
 				return nil, err
 			}
 		}
@@ -718,7 +718,7 @@ func (s *service) resolveOrCreateGoogleUser(
 			return nil, err
 		}
 		if req.InvitationToken != "" {
-			if err := s.acceptInvitationForUser(ctx, req.InvitationToken, emailLower, existingUser); err != nil {
+			if err := s.acceptInvitationForUser(ctx, req.InvitationToken, emailLower, existingUser, req.TermsVersion, req.PrivacyPolicyVersion); err != nil {
 				return nil, err
 			}
 		}
@@ -749,13 +749,13 @@ func (s *service) resolveOrCreateGoogleUser(
 	}
 
 	if req.InvitationToken != "" {
-		if err := s.signUpUserWithInvitation(ctx, req.InvitationToken, emailLower, user, req.TermsVersion); err != nil {
+		if err := s.signUpUserWithInvitation(ctx, req.InvitationToken, emailLower, user, req.TermsVersion, req.PrivacyPolicyVersion); err != nil {
 			return nil, err
 		}
 		if err := s.createGoogleIdentity(ctx, nil, user.ID, googleID); err != nil {
 			return nil, err
 		}
-	} else if err := s.createUserWithTermsAndGoogleIdentity(ctx, user, googleID, req.TermsVersion); err != nil {
+	} else if err := s.createUserWithLegalAcceptancesAndGoogleIdentity(ctx, user, googleID, req.TermsVersion, req.PrivacyPolicyVersion); err != nil {
 		return nil, err
 	}
 
@@ -796,53 +796,33 @@ func (s *service) createGoogleIdentity(ctx context.Context, tx chi_repository.Tx
 	})
 }
 
-func (s *service) createUserWithTermsAcceptance(ctx context.Context, user *models.User, termsVersion string) error {
+func (s *service) createUserWithLegalAcceptances(ctx context.Context, user *models.User, termsVersion, privacyPolicyVersion string) error {
 	return s.runInTx(ctx, func(tx chi_repository.Tx) error {
 		if err := s.usersRepo.WithTx(tx).CreateUser(ctx, user); err != nil {
 			return err
 		}
-		return s.createTermsAcceptance(ctx, s.legalDocumentAcceptancesRepo.WithTx(tx), user.ID, termsVersion)
+		return s.createLegalDocumentAcceptances(ctx, s.legalDocumentAcceptancesRepo.WithTx(tx), user.ID, termsVersion, privacyPolicyVersion)
 	})
 }
 
-func (s *service) createUserWithTermsAndGoogleIdentity(ctx context.Context, user *models.User, googleID, termsVersion string) error {
+func (s *service) createUserWithLegalAcceptancesAndGoogleIdentity(ctx context.Context, user *models.User, googleID, termsVersion, privacyPolicyVersion string) error {
 	return s.runInTx(ctx, func(tx chi_repository.Tx) error {
 		if err := s.usersRepo.WithTx(tx).CreateUser(ctx, user); err != nil {
 			return err
 		}
-		if err := s.createTermsAcceptance(ctx, s.legalDocumentAcceptancesRepo.WithTx(tx), user.ID, termsVersion); err != nil {
+		if err := s.createLegalDocumentAcceptances(ctx, s.legalDocumentAcceptancesRepo.WithTx(tx), user.ID, termsVersion, privacyPolicyVersion); err != nil {
 			return err
 		}
 		return s.createGoogleIdentity(ctx, tx, user.ID, googleID)
 	})
 }
 
-func (s *service) createTermsAcceptance(
-	ctx context.Context,
-	repo user_legal_document_acceptance_repository.UserLegalDocumentAcceptanceRepository,
-	userID uuid.UUID,
-	termsVersion string,
-) error {
-	acceptanceID, err := s.generateID()
-	if err != nil {
-		return err
-	}
-	return repo.CreateUserLegalDocumentAcceptance(ctx, &models.UserLegalDocumentAcceptance{
-		ModelBase: chi_types.ModelBase{
-			ID: acceptanceID,
-		},
-		UserID:          userID,
-		DocumentType:    constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE,
-		DocumentVersion: termsVersion,
-	})
-}
-
-func (s *service) signUpUserWithInvitation(ctx context.Context, invitationToken, emailLower string, user *models.User, termsVersion string) error {
+func (s *service) signUpUserWithInvitation(ctx context.Context, invitationToken, emailLower string, user *models.User, termsVersion, privacyPolicyVersion string) error {
 	invitation, err := s.validateInvitationAcceptance(ctx, invitationToken, emailLower)
 	if err != nil {
 		return err
 	}
-	if err := s.persistUserAndInvitationAcceptance(ctx, invitation, user, true, termsVersion); err != nil {
+	if err := s.persistUserAndInvitationAcceptance(ctx, invitation, user, true, termsVersion, privacyPolicyVersion); err != nil {
 		return err
 	}
 	if s.sessionCache != nil {
@@ -851,12 +831,12 @@ func (s *service) signUpUserWithInvitation(ctx context.Context, invitationToken,
 	return nil
 }
 
-func (s *service) acceptInvitationForUser(ctx context.Context, invitationToken, emailLower string, user *models.User) error {
+func (s *service) acceptInvitationForUser(ctx context.Context, invitationToken, emailLower string, user *models.User, termsVersion, privacyPolicyVersion string) error {
 	invitation, err := s.validateInvitationAcceptance(ctx, invitationToken, emailLower)
 	if err != nil {
 		return err
 	}
-	if err := s.persistUserAndInvitationAcceptance(ctx, invitation, user, false, ""); err != nil {
+	if err := s.persistUserAndInvitationAcceptance(ctx, invitation, user, false, termsVersion, privacyPolicyVersion); err != nil {
 		return err
 	}
 	if s.sessionCache != nil {
@@ -907,7 +887,7 @@ func (s *service) validateInvitationAcceptance(ctx context.Context, invitationTo
 	return invitation, nil
 }
 
-func (s *service) persistUserAndInvitationAcceptance(ctx context.Context, invitation *models.Invitation, user *models.User, createUser bool, termsVersion string) error {
+func (s *service) persistUserAndInvitationAcceptance(ctx context.Context, invitation *models.Invitation, user *models.User, createUser bool, termsVersion, privacyPolicyVersion string) error {
 	acceptedAt := s.now()
 	membershipID, err := s.generateID()
 	if err != nil {
@@ -949,9 +929,9 @@ func (s *service) persistUserAndInvitationAcceptance(ctx context.Context, invita
 			if err := s.usersRepo.WithTx(tx).CreateUser(ctx, user); err != nil {
 				return err
 			}
-			if err := s.createTermsAcceptance(ctx, s.legalDocumentAcceptancesRepo.WithTx(tx), user.ID, termsVersion); err != nil {
-				return err
-			}
+		}
+		if err := s.createLegalDocumentAcceptances(ctx, s.legalDocumentAcceptancesRepo.WithTx(tx), user.ID, termsVersion, privacyPolicyVersion); err != nil {
+			return err
 		}
 
 		invitation.AcceptedAt = &acceptedAt

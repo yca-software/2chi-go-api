@@ -2,12 +2,14 @@ package user_service_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
+	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
@@ -22,6 +24,7 @@ import (
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_password "github.com/yca-software/2chi-go-password"
+	chi_repository "github.com/yca-software/2chi-go-repository"
 	chi_token "github.com/yca-software/2chi-go-token"
 	chi_types "github.com/yca-software/2chi-go-types"
 	chi_validator "github.com/yca-software/2chi-go-validator"
@@ -79,6 +82,7 @@ func (s *UserServiceSuite) SetupTest() {
 			AdminAccess:                  s.adminAccessRepo,
 			OrganizationMembers:          s.membersRepo,
 		},
+		RunInTx:      inlineRunInTx,
 		SessionCache: s.sessionCache,
 		AppURL:       "https://app.example.com",
 	})
@@ -103,8 +107,9 @@ func (s *UserServiceSuite) adminAccess() *chi_types.AccessInfo {
 
 func (s *UserServiceSuite) TestAcceptTerms_ForbiddenForOtherUser() {
 	_, err := s.svc.AcceptTerms(s.ctx, &user_service.AcceptTermsRequest{
-		UserID:       uuid.New().String(),
-		TermsVersion: "1.0.0",
+		UserID:               uuid.New().String(),
+		TermsVersion:         "1.0.0",
+		PrivacyPolicyVersion: "1.0.0",
 	}, s.ownAccess())
 	s.Error(err)
 }
@@ -117,15 +122,48 @@ func (s *UserServiceSuite) TestAcceptTerms_Success() {
 		Email: "user@example.com",
 	}, nil).Once()
 	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
-		return a.DocumentVersion == "1.0.0"
+		return a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE && a.DocumentVersion == "1.0.0"
 	})).Return(nil).Once()
+	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+		return a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY && a.DocumentVersion == "1.0.0"
+	})).Return(nil).Once()
+	s.legalAcceptRepo.On("GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType", s.ctx, s.userID.String(), constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE).
+		Return(&models.UserLegalDocumentAcceptance{DocumentVersion: "1.0.0"}, nil).Once()
+	s.legalAcceptRepo.On("GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType", s.ctx, s.userID.String(), constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY).
+		Return(&models.UserLegalDocumentAcceptance{DocumentVersion: "1.0.0"}, nil).Once()
 
 	updated, err := s.svc.AcceptTerms(s.ctx, &user_service.AcceptTermsRequest{
-		UserID:       s.userID.String(),
-		TermsVersion: "1.0.0",
+		UserID:               s.userID.String(),
+		TermsVersion:         "1.0.0",
+		PrivacyPolicyVersion: "1.0.0",
 	}, s.ownAccess())
 	s.Require().NoError(err)
 	s.Equal(s.userID, updated.ID)
+	s.Equal("1.0.0", updated.TermsVersion)
+	s.Equal("1.0.0", updated.PrivacyPolicyVersion)
+}
+
+func (s *UserServiceSuite) TestAcceptTerms_PrivacyAcceptanceFailure() {
+	s.usersRepo.On("GetUserByID", s.ctx, s.userID.String()).Return(&models.User{
+		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
+			ModelBase: chi_types.ModelBase{ID: s.userID},
+		},
+		Email: "user@example.com",
+	}, nil).Once()
+	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+		return a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE
+	})).Return(nil).Once()
+	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+		return a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY
+	})).Return(errors.New("privacy acceptance failed")).Once()
+
+	updated, err := s.svc.AcceptTerms(s.ctx, &user_service.AcceptTermsRequest{
+		UserID:               s.userID.String(),
+		TermsVersion:         "1.0.0",
+		PrivacyPolicyVersion: "1.0.0",
+	}, s.ownAccess())
+	s.Error(err)
+	s.Nil(updated)
 }
 
 func (s *UserServiceSuite) TestChangePassword_OldPasswordMismatch() {
@@ -188,6 +226,13 @@ func (s *UserServiceSuite) TestUpdateProfile_Success() {
 	s.Equal("Grace", updated.FirstName)
 }
 
+func (s *UserServiceSuite) expectNoLegalAcceptances(userID string) {
+	s.legalAcceptRepo.On("GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType", s.ctx, userID, constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE).
+		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
+	s.legalAcceptRepo.On("GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType", s.ctx, userID, constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY).
+		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
+}
+
 func (s *UserServiceSuite) TestGetUser_AdminCanReadAnyUser() {
 	targetID := uuid.New()
 	s.usersRepo.On("GetUserByID", s.ctx, targetID.String()).Return(&models.User{
@@ -200,6 +245,7 @@ func (s *UserServiceSuite) TestGetUser_AdminCanReadAnyUser() {
 		Return(&[]models.OrganizationMemberWithOrganizationAndRole{}, nil).Once()
 	s.adminAccessRepo.On("GetAdminAccessByUserID", s.ctx, targetID.String()).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
+	s.expectNoLegalAcceptances(targetID.String())
 
 	resp, err := s.svc.GetUser(s.ctx, &user_service.GetUserRequest{UserID: targetID.String()}, s.adminAccess())
 	s.Require().NoError(err)
@@ -384,6 +430,7 @@ func (s *UserServiceSuite) TestGetUser_OwnUser() {
 	s.membersRepo.On("ListByUserIDWithRole", s.ctx, s.userID.String()).Return(&[]models.OrganizationMemberWithOrganizationAndRole{}, nil).Once()
 	s.adminAccessRepo.On("GetAdminAccessByUserID", s.ctx, s.userID.String()).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
+	s.expectNoLegalAcceptances(s.userID.String())
 
 	resp, err := s.svc.GetUser(s.ctx, &user_service.GetUserRequest{UserID: s.userID.String()}, s.ownAccess())
 	s.Require().NoError(err)
@@ -414,4 +461,8 @@ func mockLogger() chi_logger.Logger {
 		}
 	}
 	return m
+}
+
+func inlineRunInTx(_ context.Context, fn func(chi_repository.Tx) error) error {
+	return fn(nil)
 }

@@ -24,6 +24,7 @@ import (
 	chi_localizer "github.com/yca-software/2chi-go-localizer"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_password "github.com/yca-software/2chi-go-password"
+	chi_repository "github.com/yca-software/2chi-go-repository"
 	chi_template "github.com/yca-software/2chi-go-template"
 	chi_types "github.com/yca-software/2chi-go-types"
 	chi_validator "github.com/yca-software/2chi-go-validator"
@@ -40,6 +41,7 @@ type Dependencies struct {
 	HashToken      func(token string) string
 	Authorizer     *authz.Authorizer
 	Repositories   *repositories.Repositories
+	RunInTx        repositories.TxRunner
 	SessionCache   *authz.SessionCache
 	AppURL         string
 	Localizer      chi_localizer.Localizer
@@ -48,7 +50,7 @@ type Dependencies struct {
 }
 
 type Service interface {
-	AcceptTerms(ctx context.Context, req *AcceptTermsRequest, access *chi_types.AccessInfo) (*models.User, error)
+	AcceptTerms(ctx context.Context, req *AcceptTermsRequest, access *chi_types.AccessInfo) (*UserProfile, error)
 	ChangePassword(ctx context.Context, req *ChangePasswordRequest, access *chi_types.AccessInfo) error
 	UpdateProfile(ctx context.Context, req *UpdateProfileRequest, access *chi_types.AccessInfo) (*models.User, error)
 	UpdateLanguage(ctx context.Context, req *UpdateLanguageRequest, access *chi_types.AccessInfo) (*models.User, error)
@@ -78,6 +80,7 @@ type service struct {
 	passwordHashFn              func(password string) (string, error)
 	generateToken               func() (string, error)
 	hashToken                   func(token string) string
+	runInTx                     repositories.TxRunner
 	authorizer                  *authz.Authorizer
 	sessionCache                *authz.SessionCache
 	usersRepo                   user_repository.UsersRepository
@@ -97,6 +100,10 @@ func New(deps Dependencies) Service {
 	if deps.HashToken == nil {
 		panic("user service: HashToken is required")
 	}
+	runInTx := deps.RunInTx
+	if runInTx == nil && deps.Repositories != nil {
+		runInTx = deps.Repositories.RunInTx
+	}
 	return &service{
 		generateID:                      deps.GenerateID,
 		now:                             deps.Now,
@@ -105,6 +112,7 @@ func New(deps Dependencies) Service {
 		passwordHashFn:                  deps.PasswordHashFn,
 		generateToken:                   deps.GenerateToken,
 		hashToken:                       deps.HashToken,
+		runInTx:                         runInTx,
 		authorizer:                      deps.Authorizer,
 		sessionCache:                    deps.SessionCache,
 		usersRepo:                       deps.Repositories.Users,
@@ -121,7 +129,7 @@ func New(deps Dependencies) Service {
 	}
 }
 
-func (s *service) AcceptTerms(ctx context.Context, req *AcceptTermsRequest, access *chi_types.AccessInfo) (*models.User, error) {
+func (s *service) AcceptTerms(ctx context.Context, req *AcceptTermsRequest, access *chi_types.AccessInfo) (*UserProfile, error) {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
@@ -135,23 +143,19 @@ func (s *service) AcceptTerms(ctx context.Context, req *AcceptTermsRequest, acce
 		return nil, err
 	}
 
-	acceptanceID, err := s.generateID()
-	if err != nil {
-		return nil, err
-	}
-
-	if err := s.legalDocumentAcceptancesRepo.CreateUserLegalDocumentAcceptance(ctx, &models.UserLegalDocumentAcceptance{
-		ModelBase: chi_types.ModelBase{
-			ID: acceptanceID,
-		},
-		UserID:          user.ID,
-		DocumentType:    constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE,
-		DocumentVersion: req.TermsVersion,
+	if err := s.runInTx(ctx, func(tx chi_repository.Tx) error {
+		return s.createLegalDocumentAcceptances(
+			ctx,
+			s.legalDocumentAcceptancesRepo.WithTx(tx),
+			user.ID,
+			req.TermsVersion,
+			req.PrivacyPolicyVersion,
+		)
 	}); err != nil {
 		return nil, err
 	}
 
-	return user, nil
+	return s.userProfileWithLegalAcceptances(ctx, user)
 }
 
 func (s *service) ChangePassword(ctx context.Context, req *ChangePasswordRequest, access *chi_types.AccessInfo) error {
@@ -358,12 +362,21 @@ func (s *service) GetUser(ctx context.Context, req *GetUserRequest, access *chi_
 	adminAccess, err := s.adminAccessRepo.GetAdminAccessByUserID(ctx, req.UserID)
 	if err != nil {
 		if platform_repository.IsNotFound(err) {
-			return &GetUserResponse{User: *user, Roles: *roles}, nil
+			profile, profileErr := s.userProfileWithLegalAcceptances(ctx, user)
+			if profileErr != nil {
+				return nil, profileErr
+			}
+			return &GetUserResponse{User: *profile, Roles: *roles}, nil
 		}
 		return nil, err
 	}
 
-	return &GetUserResponse{User: *user, AdminAccess: adminAccess, Roles: *roles}, nil
+	profile, err := s.userProfileWithLegalAcceptances(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+
+	return &GetUserResponse{User: *profile, AdminAccess: adminAccess, Roles: *roles}, nil
 }
 
 func (s *service) ResendVerificationEmail(ctx context.Context, req *ResendVerificationEmailRequest, access *chi_types.AccessInfo) error {

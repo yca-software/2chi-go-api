@@ -12,12 +12,12 @@ type MockService struct {
 	mock.Mock
 }
 
-func (m *MockService) AcceptTerms(ctx context.Context, req *AcceptTermsRequest, access *chi_types.AccessInfo) (*models.User, error) {
+func (m *MockService) AcceptTerms(ctx context.Context, req *AcceptTermsRequest, access *chi_types.AccessInfo) (*UserProfile, error) {
 	args := m.Called(ctx, req, access)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*models.User), args.Error(1)
+	return args.Get(0).(*UserProfile), args.Error(1)
 }
 
 func (m *MockService) ChangePassword(ctx context.Context, req *ChangePasswordRequest, access *chi_types.AccessInfo) error {

@@ -1,14 +1,17 @@
 package user_service
 
 import (
+	"time"
+
 	"github.com/yca-software/2chi-go-api/internals/models"
 	chi_archive "github.com/yca-software/2chi-go-archive"
 	chi_types "github.com/yca-software/2chi-go-types"
 )
 
 type AcceptTermsRequest struct {
-	UserID       string `json:"-" validate:"required,uuid"`
-	TermsVersion string `json:"termsVersion" validate:"required"`
+	UserID               string `json:"-" validate:"required,uuid"`
+	TermsVersion         string `json:"termsVersion" validate:"required,semver"`
+	PrivacyPolicyVersion string `json:"privacyPolicyVersion" validate:"required,semver"`
 }
 
 type ChangePasswordRequest struct {
@@ -25,8 +28,16 @@ type GetUserRequest struct {
 	UserID string `json:"-" validate:"required,uuid"`
 }
 
+type UserProfile struct {
+	models.User
+	TermsVersion            string     `json:"termsVersion"`
+	TermsAcceptedAt         *time.Time `json:"termsAcceptedAt"`
+	PrivacyPolicyVersion    string     `json:"privacyPolicyVersion"`
+	PrivacyPolicyAcceptedAt *time.Time `json:"privacyPolicyAcceptedAt"`
+}
+
 type GetUserResponse struct {
-	User        models.User                                        `json:"user"`
+	User        UserProfile                                        `json:"user"`
 	AdminAccess *models.AdminAccess                                `json:"adminAccess,omitempty"`
 	Roles       []models.OrganizationMemberWithOrganizationAndRole `json:"roles"`
 }
