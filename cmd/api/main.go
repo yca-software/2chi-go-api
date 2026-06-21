@@ -11,10 +11,10 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/yca-software/2chi-go-api/internals/config"
-	"github.com/yca-software/2chi-go-api/internals/gateway"
-	"github.com/yca-software/2chi-go-api/internals/platform/datastores"
-	"github.com/yca-software/2chi-go-api/internals/platform/logger"
-	"github.com/yca-software/2chi-go-api/internals/platform/observer"
+	"github.com/yca-software/2chi-go-api/internals/handlers"
+	"github.com/yca-software/2chi-go-api/internals/packages/datastores"
+	"github.com/yca-software/2chi-go-api/internals/packages/logger"
+	"github.com/yca-software/2chi-go-api/internals/packages/observer"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_ratelimit "github.com/yca-software/2chi-go-ratelimit"
 	chi_server "github.com/yca-software/2chi-go-server"
@@ -78,7 +78,7 @@ func main() {
 
 			chi_server.RegisterHealthHandlers(e, readinessDeps)
 
-			gateway.NewGateway(e, appDatastores, cfg, appObserver, appLogger)
+			handlers.NewGateway(e, appDatastores, cfg, appObserver, appLogger)
 		},
 	})
 

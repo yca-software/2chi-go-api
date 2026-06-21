@@ -5,23 +5,29 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/suite"
-	chi_aws_sqs "github.com/yca-software/2chi-go-aws/sqs"
 	"github.com/yca-software/2chi-go-api/internals/jobs"
+	chi_aws_sqs "github.com/yca-software/2chi-go-aws/sqs"
+	chi_logger "github.com/yca-software/2chi-go-logger"
 )
 
 type ClientConfigSuite struct {
 	suite.Suite
+	logger chi_logger.Logger
 }
 
 func TestClientConfigSuite(t *testing.T) {
 	suite.Run(t, new(ClientConfigSuite))
 }
 
+func (s *ClientConfigSuite) SetupTest() {
+	s.logger = &chi_logger.MockLogger{}
+}
+
 func (s *ClientConfigSuite) TestNewClient_MissingSQS() {
 	_, err := jobs.NewClient(jobs.Config{
 		CleanupQueueURL:            "https://sqs/cleanup",
 		ApplyScheduledPlanQueueURL: "https://sqs/apply",
-		Logger:                     testLogger(),
+		Logger:                     s.logger,
 	})
 	s.Error(err)
 	s.Contains(err.Error(), "SQS")
@@ -30,7 +36,7 @@ func (s *ClientConfigSuite) TestNewClient_MissingSQS() {
 func (s *ClientConfigSuite) TestNewClient_MissingQueueURLs() {
 	_, err := jobs.NewClient(jobs.Config{
 		SQS:    stubSQS{},
-		Logger: testLogger(),
+		Logger: s.logger,
 	})
 	s.Error(err)
 	s.Contains(err.Error(), "queue URLs")

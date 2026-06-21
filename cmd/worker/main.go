@@ -8,8 +8,8 @@ import (
 	"syscall"
 
 	"github.com/yca-software/2chi-go-api/internals/config"
-	"github.com/yca-software/2chi-go-api/internals/platform/logger"
-	"github.com/yca-software/2chi-go-api/internals/platform/runtime"
+	"github.com/yca-software/2chi-go-api/internals/packages/logger"
+	"github.com/yca-software/2chi-go-api/internals/packages/runtime"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	"golang.org/x/sync/errgroup"
 )

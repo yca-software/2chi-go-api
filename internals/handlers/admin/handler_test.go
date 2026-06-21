@@ -1,0 +1,187 @@
+package handlers_test
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/suite"
+	"github.com/yca-software/2chi-go-api/internals/config"
+	admin_handlers "github.com/yca-software/2chi-go-api/internals/handlers/admin"
+	audit_service "github.com/yca-software/2chi-go-api/internals/services/audit"
+	auth_service "github.com/yca-software/2chi-go-api/internals/services/auth"
+	organization_service "github.com/yca-software/2chi-go-api/internals/services/organization"
+	user_service "github.com/yca-software/2chi-go-api/internals/services/user"
+	chi_archive "github.com/yca-software/2chi-go-archive"
+	chi_error "github.com/yca-software/2chi-go-error"
+	chi_logger "github.com/yca-software/2chi-go-logger"
+	chi_types "github.com/yca-software/2chi-go-types"
+)
+
+const (
+	testAdminUserID  = "11111111-1111-4111-8111-111111111101"
+	testTargetUserID = "22222222-2222-4222-8222-222222222202"
+	testOrgID        = "33333333-3333-4333-8333-333333333303"
+)
+
+type AdminHandlerSuite struct {
+	suite.Suite
+	echo         *echo.Echo
+	authService  *auth_service.MockService
+	usersService *user_service.MockService
+	orgService   *organization_service.MockService
+	auditService *audit_service.MockService
+	handler      *admin_handlers.AdminHandler
+	adminAccess  *chi_types.AccessInfo
+}
+
+func TestAdminHandlerSuite(t *testing.T) {
+	suite.Run(t, new(AdminHandlerSuite))
+}
+
+func (s *AdminHandlerSuite) SetupTest() {
+	s.echo = echo.New()
+	s.echo.HTTPErrorHandler = func(err error, c echo.Context) {
+		if apiErr, ok := chi_error.AsError(err); ok {
+			_ = c.JSON(apiErr.StatusCode, apiErr)
+			return
+		}
+		if httpErr, ok := err.(*echo.HTTPError); ok {
+			_ = c.JSON(httpErr.Code, map[string]any{"message": httpErr.Message})
+			return
+		}
+		_ = c.JSON(http.StatusInternalServerError, map[string]any{"message": err.Error()})
+	}
+
+	s.authService = new(auth_service.MockService)
+	s.usersService = new(user_service.MockService)
+	s.orgService = new(organization_service.MockService)
+	s.auditService = new(audit_service.MockService)
+
+	cfg := &config.Config{
+		App: config.AppConfig{
+			Name:         "2chi",
+			Environment:  "local",
+			CookieDomain: "localhost",
+		},
+	}
+
+	s.handler = admin_handlers.NewAdminHandler(
+		s.authService,
+		s.usersService,
+		s.orgService,
+		s.auditService,
+		cfg,
+		&chi_logger.MockLogger{},
+	)
+
+	s.adminAccess = &chi_types.AccessInfo{
+		Type:      chi_types.AccessTypeUser,
+		SubjectID: uuid.MustParse(testAdminUserID),
+		Email:     "admin@example.com",
+		IsAdmin:   true,
+		IPAddress: "127.0.0.1",
+	}
+}
+
+func (s *AdminHandlerSuite) withAccess(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		c.Set("accessInfo", s.adminAccess)
+		return next(c)
+	}
+}
+
+func (s *AdminHandlerSuite) TestListUsers_Success() {
+	s.usersService.On("ListUsers", mock.Anything, mock.MatchedBy(func(req *user_service.ListUsersRequest) bool {
+		return req.SearchPhrase == "" &&
+			req.ArchiveFilter == chi_archive.ArchiveFilterActive &&
+			req.Limit == 20 &&
+			req.Offset == 0
+	}), s.adminAccess).Return(&user_service.ListUsersResponse{}, nil).Once()
+
+	s.echo.GET("/api/v1/admin/user", s.handler.ListUsers, s.withAccess)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/user", nil)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.usersService.AssertExpectations(s.T())
+}
+
+func (s *AdminHandlerSuite) TestGetUser_Success() {
+	s.usersService.On("GetUser", mock.Anything, mock.MatchedBy(func(req *user_service.GetUserRequest) bool {
+		return req.UserID == testTargetUserID
+	}), s.adminAccess).Return(&user_service.GetUserResponse{}, nil).Once()
+
+	s.echo.GET("/api/v1/admin/user/:userId", s.handler.GetUser, s.withAccess)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/user/"+testTargetUserID, nil)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.usersService.AssertExpectations(s.T())
+}
+
+func (s *AdminHandlerSuite) TestImpersonateUser_Success() {
+	s.authService.On("Impersonate", mock.Anything, mock.MatchedBy(func(req *auth_service.ImpersonateRequest) bool {
+		return req.UserID == testTargetUserID
+	}), s.adminAccess).Return(&auth_service.AuthenticateResponse{
+		AccessToken:  "access-token",
+		RefreshToken: "refresh-token",
+	}, nil).Once()
+
+	s.echo.POST("/api/v1/admin/user/:userId/impersonate", s.handler.ImpersonateUser, s.withAccess)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/user/"+testTargetUserID+"/impersonate", nil)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+
+	s.Equal(http.StatusOK, rec.Code)
+
+	var body map[string]string
+	s.Require().NoError(json.Unmarshal(rec.Body.Bytes(), &body))
+	s.Equal("access-token", body["accessToken"])
+	s.Equal("refresh-token", body["refreshToken"])
+	s.authService.AssertExpectations(s.T())
+}
+
+func (s *AdminHandlerSuite) TestListOrganizations_Success() {
+	s.orgService.On("ListOrganizations", mock.Anything, mock.MatchedBy(func(req *organization_service.ListOrganizationsRequest) bool {
+		return req.SearchPhrase == "" &&
+			req.ArchiveFilter == chi_archive.ArchiveFilterActive &&
+			req.Limit == 20 &&
+			req.Offset == 0
+	}), s.adminAccess).Return(&organization_service.ListOrganizationsResponse{}, nil).Once()
+
+	s.echo.GET("/api/v1/admin/organization", s.handler.ListOrganizations, s.withAccess)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/organization", nil)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.orgService.AssertExpectations(s.T())
+}
+
+func (s *AdminHandlerSuite) TestListOrganizationAuditLogs_Success() {
+	s.auditService.On("ListAuditLogsForOrganization", mock.Anything, mock.MatchedBy(func(req *audit_service.ListAuditLogsForOrganizationRequest) bool {
+		return req.OrganizationID == testOrgID &&
+			req.Limit == 50 &&
+			req.Offset == 0
+	}), s.adminAccess).Return(&audit_service.ListAuditLogsForOrganizationResponse{}, nil).Once()
+
+	s.echo.GET("/api/v1/admin/organization/:orgId/audit-log", s.handler.ListOrganizationAuditLogs, s.withAccess)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/organization/"+testOrgID+"/audit-log", nil)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.auditService.AssertExpectations(s.T())
+}
