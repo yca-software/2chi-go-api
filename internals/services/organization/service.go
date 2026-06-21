@@ -11,6 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
+	"github.com/yca-software/2chi-go-api/internals/packages/audit"
+	"github.com/yca-software/2chi-go-api/internals/packages/authz"
+	platform_subscription "github.com/yca-software/2chi-go-api/internals/packages/subscription"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
 	organization_location_repository "github.com/yca-software/2chi-go-api/internals/repositories/location"
@@ -22,9 +25,6 @@ import (
 	billing_service "github.com/yca-software/2chi-go-api/internals/services/billing"
 	invitation_service "github.com/yca-software/2chi-go-api/internals/services/invitation"
 	location_service "github.com/yca-software/2chi-go-api/internals/services/location"
-	"github.com/yca-software/2chi-go-api/internals/packages/audit"
-	"github.com/yca-software/2chi-go-api/internals/packages/authz"
-	platform_subscription "github.com/yca-software/2chi-go-api/internals/packages/subscription"
 	chi_archive "github.com/yca-software/2chi-go-archive"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_logger "github.com/yca-software/2chi-go-logger"
@@ -563,10 +563,6 @@ func (s *service) DeleteOrganizationMember(ctx context.Context, req *DeleteOrgan
 		return err
 	}
 
-	if err := s.ensureNotLastPrivilegedMember(ctx, req.OrganizationID, member); err != nil {
-		return err
-	}
-
 	if access.Type == chi_types.AccessTypeUser && member.UserID == access.SubjectID {
 		return chi_error.NewForbiddenError(errors.New("cannot remove own membership"), "UserCannotRemoveOwnMember", nil)
 	}
@@ -911,37 +907,4 @@ func (s *service) rollbackPaddleCustomer(ctx context.Context, organizationID str
 			"paddleCustomerId", billingAccount.ProviderCustomerID,
 		)
 	}
-}
-
-func (s *service) ensureNotLastPrivilegedMember(ctx context.Context, organizationID string, target *models.OrganizationMember) error {
-	members, err := s.organizationMembersRepo.ListByOrganizationID(ctx, organizationID)
-	if err != nil {
-		return err
-	}
-
-	targetRole, err := s.rolesRepo.GetRoleByID(ctx, organizationID, target.RoleID.String())
-	if err != nil {
-		return err
-	}
-	if !authz.RoleCanManageMembers(targetRole.Permissions) {
-		return nil
-	}
-
-	privilegedOthers := 0
-	for _, member := range *members {
-		if member.ID == target.ID {
-			continue
-		}
-		role, roleErr := s.rolesRepo.GetRoleByID(ctx, organizationID, member.RoleID.String())
-		if roleErr != nil {
-			return roleErr
-		}
-		if authz.RoleCanManageMembers(role.Permissions) {
-			privilegedOthers++
-		}
-	}
-	if privilegedOthers == 0 {
-		return chi_error.NewForbiddenError(errors.New("cannot remove last privileged member"), "OrganizationLastPrivilegedMember", nil)
-	}
-	return nil
 }

@@ -122,7 +122,3 @@ func hasPermissions(have, required []string) bool {
 	}
 	return true
 }
-
-func RoleCanManageMembers(permissions models.RolePermissions) bool {
-	return slices.Contains(permissions, constants.PERMISSION_MEMBERS_DELETE)
-}

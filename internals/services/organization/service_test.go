@@ -436,12 +436,6 @@ func (s *OrganizationServiceSuite) TestDeleteOrganizationMember_CannotDeleteSelf
 	s.expectBasicBillingAccount(orgID).Once()
 	s.orgMembersRepo.On("GetOrganizationMemberByMembershipID", s.ctx, orgID.String(), memberID.String()).
 		Return(s.organizationMember(memberID, orgID, s.userID, roleID), nil).Once()
-	s.orgMembersRepo.On("ListByOrganizationID", s.ctx, orgID.String()).Return(&[]models.OrganizationMemberWithUser{{
-		OrganizationMember: *s.organizationMember(memberID, orgID, s.userID, roleID),
-	}}, nil).Once()
-	memberRole := s.role(roleID, orgID)
-	memberRole.Permissions = organization_service.DefaultTeamMemberPermissions
-	s.rolesRepo.On("GetRoleByID", s.ctx, orgID.String(), roleID.String()).Return(memberRole, nil).Once()
 
 	access := s.orgAccess(orgID, constants.PERMISSION_MEMBERS_DELETE)
 	err := s.svc.DeleteOrganizationMember(s.ctx, &organization_service.DeleteOrganizationMemberRequest{
@@ -616,13 +610,10 @@ func (s *OrganizationServiceSuite) TestDeleteOrganizationMember_Success() {
 	s.expectBasicBillingAccount(orgID).Once()
 	s.orgMembersRepo.On("GetOrganizationMemberByMembershipID", s.ctx, orgID.String(), memberID.String()).
 		Return(s.organizationMember(memberID, orgID, memberUserID, roleID), nil).Once()
-	s.orgMembersRepo.On("ListByOrganizationID", s.ctx, orgID.String()).Return(&[]models.OrganizationMemberWithUser{{
-		OrganizationMember: *s.organizationMember(memberID, orgID, memberUserID, roleID),
-	}}, nil).Once()
 	deleteRole := s.role(roleID, orgID)
 	deleteRole.Name = "Member"
 	deleteRole.Permissions = organization_service.DefaultTeamMemberPermissions
-	s.rolesRepo.On("GetRoleByID", s.ctx, orgID.String(), roleID.String()).Return(deleteRole, nil).Twice()
+	s.rolesRepo.On("GetRoleByID", s.ctx, orgID.String(), roleID.String()).Return(deleteRole, nil).Once()
 	s.usersRepo.On("GetUserByID", s.ctx, memberUserID.String()).
 		Return(&models.User{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
@@ -638,34 +629,6 @@ func (s *OrganizationServiceSuite) TestDeleteOrganizationMember_Success() {
 		MemberID:       memberID.String(),
 	}, s.orgAccess(orgID, constants.PERMISSION_MEMBERS_DELETE))
 	s.NoError(err)
-}
-
-func (s *OrganizationServiceSuite) TestDeleteOrganizationMember_LastPrivilegedMember() {
-	orgID := uuid.New()
-	memberID := uuid.New()
-	ownerRoleID := uuid.New()
-	memberUserID := uuid.New()
-
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).
-		Return(s.organization(orgID, "Acme"), nil).Once()
-	s.expectBasicBillingAccount(orgID).Once()
-	s.orgMembersRepo.On("GetOrganizationMemberByMembershipID", s.ctx, orgID.String(), memberID.String()).
-		Return(s.organizationMember(memberID, orgID, memberUserID, ownerRoleID), nil).Once()
-	s.orgMembersRepo.On("ListByOrganizationID", s.ctx, orgID.String()).Return(&[]models.OrganizationMemberWithUser{
-		{OrganizationMember: *s.organizationMember(memberID, orgID, memberUserID, ownerRoleID)},
-	}, nil).Once()
-	ownerRole := s.role(ownerRoleID, orgID)
-	ownerRole.Permissions = organization_service.DefaultOwnerPermissions
-	s.rolesRepo.On("GetRoleByID", s.ctx, orgID.String(), ownerRoleID.String()).Return(ownerRole, nil).Once()
-
-	err := s.svc.DeleteOrganizationMember(s.ctx, &organization_service.DeleteOrganizationMemberRequest{
-		OrganizationID: orgID.String(),
-		MemberID:       memberID.String(),
-	}, s.orgAccess(orgID, constants.PERMISSION_MEMBERS_DELETE))
-	s.Error(err)
-	if apiErr, ok := chi_error.AsError(err); ok {
-		s.Equal("OrganizationLastPrivilegedMember", apiErr.ErrorCode)
-	}
 }
 
 func inlineRunInTx(_ context.Context, fn func(chi_repository.Tx) error) error {
