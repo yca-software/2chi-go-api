@@ -378,7 +378,10 @@ func (s *service) ResetPassword(ctx context.Context, req *ResetPasswordRequest) 
 		if err := s.userPasswordResetTokensRepo.WithTx(tx).MarkPasswordResetTokenAsUsed(ctx, resetToken.ID.String()); err != nil {
 			return err
 		}
-		return s.usersRepo.WithTx(tx).UpdateUser(ctx, user)
+		if err := s.usersRepo.WithTx(tx).UpdateUser(ctx, user); err != nil {
+			return err
+		}
+		return s.userRefreshTokensRepo.WithTx(tx).RevokeAllRefreshTokensByUserID(ctx, user.ID.String(), nil)
 	}); err != nil {
 		return err
 	}
@@ -485,7 +488,8 @@ func (s *service) VerifyEmail(ctx context.Context, req *VerifyEmailRequest) erro
 		return err
 	}
 
-	if _, err := s.usersRepo.GetUserByID(ctx, verificationToken.UserID.String()); err != nil {
+	user, err := s.usersRepo.GetUserByID(ctx, verificationToken.UserID.String())
+	if err != nil {
 		return err
 	}
 
@@ -496,7 +500,15 @@ func (s *service) VerifyEmail(ctx context.Context, req *VerifyEmailRequest) erro
 		return chi_error.NewUnauthorizedError(errors.New("verification token already used"), "InvalidVerificationToken", nil)
 	}
 
-	return s.userEmailVerificationTokensRepo.MarkEmailVerificationTokenAsUsed(ctx, verificationToken.ID.String())
+	verifiedAt := s.now()
+	user.EmailVerifiedAt = &verifiedAt
+
+	return s.runInTx(ctx, func(tx chi_repository.Tx) error {
+		if err := s.userEmailVerificationTokensRepo.WithTx(tx).MarkEmailVerificationTokenAsUsed(ctx, verificationToken.ID.String()); err != nil {
+			return err
+		}
+		return s.usersRepo.WithTx(tx).UpdateUser(ctx, user)
+	})
 }
 
 func (s *service) Impersonate(ctx context.Context, req *ImpersonateRequest, access *chi_types.AccessInfo) (*AuthenticateResponse, error) {

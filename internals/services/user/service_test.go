@@ -147,6 +147,26 @@ func (s *UserServiceSuite) TestChangePassword_OldPasswordMismatch() {
 	}
 }
 
+func (s *UserServiceSuite) TestChangePassword_RevokesRefreshTokensAndSession() {
+	hash, err := chi_password.Hash("correct-old")
+	s.Require().NoError(err)
+	s.usersRepo.On("GetUserByID", s.ctx, s.userID.String()).Return(&models.User{
+		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{ModelBase: chi_types.ModelBase{ID: s.userID}},
+		Password:             hash,
+	}, nil).Once()
+	s.usersRepo.On("UpdateUser", s.ctx, mock.MatchedBy(func(u *models.User) bool {
+		return u.ID == s.userID && u.Password != hash
+	})).Return(nil).Once()
+	s.refreshTokensRepo.On("RevokeAllRefreshTokensByUserID", s.ctx, s.userID.String(), (*string)(nil)).Return(nil).Once()
+
+	err = s.svc.ChangePassword(s.ctx, &user_service.ChangePasswordRequest{
+		UserID:      s.userID.String(),
+		OldPassword: "correct-old",
+		NewPassword: "newpassword123",
+	}, s.ownAccess())
+	s.Require().NoError(err)
+}
+
 func (s *UserServiceSuite) TestUpdateProfile_Success() {
 	s.usersRepo.On("GetUserByID", s.ctx, s.userID.String()).Return(&models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{

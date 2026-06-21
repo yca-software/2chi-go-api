@@ -181,7 +181,13 @@ func (s *service) ChangePassword(ctx context.Context, req *ChangePasswordRequest
 
 	user.Password = hashedPassword
 
-	return s.usersRepo.UpdateUser(ctx, user)
+	if err := s.usersRepo.UpdateUser(ctx, user); err != nil {
+		return err
+	}
+	if err := s.userRefreshTokensRepo.RevokeAllRefreshTokensByUserID(ctx, req.UserID, nil); err != nil {
+		return err
+	}
+	return s.sessionCache.InvalidateSession(ctx, req.UserID)
 }
 
 func (s *service) UpdateProfile(ctx context.Context, req *UpdateProfileRequest, access *chi_types.AccessInfo) (*models.User, error) {

@@ -11,6 +11,7 @@ import (
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	api_key_repository "github.com/yca-software/2chi-go-api/internals/repositories/api_key"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
+	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_types "github.com/yca-software/2chi-go-types"
 )
@@ -26,6 +27,7 @@ type PermissionResolverDeps struct {
 	SessionCache                    *SessionCache
 	LoadUserAccess                  LoadUserAccessDeps
 	APIKeysRepo                     api_key_repository.APIKeysRepository
+	OrganizationsRepo               organization_repository.OrganizationsRepository
 	OrganizationBillingAccountsRepo billing_account_repository.OrganizationBillingAccountsRepository
 	HashToken                       func(token string) string
 	Now                             func() time.Time
@@ -35,6 +37,7 @@ type permissionResolver struct {
 	sessionCache                    *SessionCache
 	loadUserAccess                  LoadUserAccessDeps
 	apiKeysRepo                     api_key_repository.APIKeysRepository
+	organizationsRepo               organization_repository.OrganizationsRepository
 	organizationBillingAccountsRepo billing_account_repository.OrganizationBillingAccountsRepository
 	hashToken                       func(token string) string
 	now                             func() time.Time
@@ -55,6 +58,7 @@ func NewPermissionResolver(deps PermissionResolverDeps) PermissionResolver {
 		sessionCache:                    deps.SessionCache,
 		loadUserAccess:                  deps.LoadUserAccess,
 		apiKeysRepo:                     deps.APIKeysRepo,
+		organizationsRepo:               deps.OrganizationsRepo,
 		organizationBillingAccountsRepo: deps.OrganizationBillingAccountsRepo,
 		hashToken:                       deps.HashToken,
 		now:                             now,
@@ -98,6 +102,16 @@ func (r *permissionResolver) ResolveAPIKeyAccess(ctx context.Context, plainKey s
 
 	if apiKey.ExpiresAt.Before(r.now()) {
 		return nil, chi_error.NewUnauthorizedError(errors.New("api key has expired"), "ExpiredToken", nil)
+	}
+
+	if r.organizationsRepo != nil {
+		organization, orgErr := r.organizationsRepo.GetOrganizationByIDIncludeArchived(ctx, apiKey.OrganizationID.String())
+		if orgErr != nil {
+			return nil, orgErr
+		}
+		if organization.DeletedAt != nil {
+			return nil, chi_error.NewUnauthorizedError(errors.New("invalid api key"), "InvalidApiKey", nil)
+		}
 	}
 
 	org, err := r.organizationBillingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, apiKey.OrganizationID.String())

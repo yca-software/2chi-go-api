@@ -46,6 +46,7 @@ func NewGateway(e *echo.Echo, datastores *datastores.Datastores, cfg *config.Con
 		SessionCache:                    sessionCache,
 		LoadUserAccess:                  loadUserAccessDeps,
 		APIKeysRepo:                     repos.APIKeys,
+		OrganizationsRepo:               repos.Organizations,
 		OrganizationBillingAccountsRepo: repos.OrganizationBillingAccounts,
 		HashToken:                       tokenHasher.Hash,
 		Now:                             time.Now,

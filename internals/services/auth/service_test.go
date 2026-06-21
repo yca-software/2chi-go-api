@@ -46,6 +46,7 @@ type AuthServiceSuite struct {
 	orgsRepo          *organization_repository.MockOrganizationsRepository
 	adminAccessRepo   *admin_access_repository.MockAdminAccessRepository
 	membersRepo       *organization_member_repository.MockOrganizationMembersRepository
+	sessionCache      *authz.SessionCache
 	logger            *chi_logger.MockLogger
 	svc               auth_service.Service
 }
@@ -66,6 +67,7 @@ func (s *AuthServiceSuite) SetupTest() {
 	s.orgsRepo = &organization_repository.MockOrganizationsRepository{}
 	s.adminAccessRepo = &admin_access_repository.MockAdminAccessRepository{}
 	s.membersRepo = &organization_member_repository.MockOrganizationMembersRepository{}
+	s.sessionCache = authz.NewTestSessionCache(s.T(), time.Hour)
 	s.logger = &chi_logger.MockLogger{}
 	configureMockLogger(s.logger)
 
@@ -90,6 +92,7 @@ func (s *AuthServiceSuite) SetupTest() {
 			OrganizationMembers:         s.membersRepo,
 		},
 		RunInTx:           inlineRunInTx,
+		SessionCache:      s.sessionCache,
 		AccessTokenSecret: "test-secret-key-at-least-32-bytes-long",
 		AppURL:            "https://app.example.com",
 	})
@@ -348,6 +351,9 @@ func (s *AuthServiceSuite) TestVerifyEmail_Success() {
 			},
 		}, nil).Once()
 	s.emailVerifyRepo.On("MarkEmailVerificationTokenAsUsed", s.ctx, tokenID.String()).Return(nil).Once()
+	s.usersRepo.On("UpdateUser", s.ctx, mock.MatchedBy(func(u *models.User) bool {
+		return u.ID == userID && u.EmailVerifiedAt != nil && u.EmailVerifiedAt.Equal(s.now)
+	})).Return(nil).Once()
 
 	err := s.svc.VerifyEmail(s.ctx, &auth_service.VerifyEmailRequest{Token: "verify-token"})
 	s.NoError(err)
@@ -370,6 +376,7 @@ func (s *AuthServiceSuite) TestResetPassword_Success() {
 		}, nil).Once()
 	s.passwordResetRepo.On("MarkPasswordResetTokenAsUsed", s.ctx, tokenID.String()).Return(nil).Once()
 	s.usersRepo.On("UpdateUser", s.ctx, mock.AnythingOfType("*models.User")).Return(nil).Once()
+	s.refreshTokensRepo.On("RevokeAllRefreshTokensByUserID", s.ctx, userID.String(), (*string)(nil)).Return(nil).Once()
 
 	err := s.svc.ResetPassword(s.ctx, &auth_service.ResetPasswordRequest{
 		Token:    "reset-token",

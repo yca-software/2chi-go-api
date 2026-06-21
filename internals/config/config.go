@@ -14,6 +14,7 @@ import (
 const (
 	EnvPrefix         = "2CHI_"
 	DefaultConfigPath = "./config.yaml"
+	MinAuthSecretLen  = 32
 )
 
 type Config struct {
@@ -149,7 +150,22 @@ func Init() (*Config, error) {
 		return nil, fmt.Errorf("config: unmarshal: %w", err)
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
+}
+
+// Validate checks required configuration before the process starts serving traffic.
+func (c *Config) Validate() error {
+	if len(c.Auth.AccessTokenSecret) < MinAuthSecretLen {
+		return fmt.Errorf("config: auth.access_token_secret must be at least %d characters", MinAuthSecretLen)
+	}
+	if len(c.Auth.TokenHashPepper) < MinAuthSecretLen {
+		return fmt.Errorf("config: auth.token_hash_pepper must be at least %d characters", MinAuthSecretLen)
+	}
+	return nil
 }
 
 // secretEnvSections limits which YAML sections can be overridden by env vars.
