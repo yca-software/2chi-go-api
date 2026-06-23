@@ -57,6 +57,7 @@ type Service interface {
 	CleanupArchivedOrganizations(ctx context.Context) error
 
 	GetOrganization(ctx context.Context, req *GetOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error)
+	GetOrganizationBillingAccount(ctx context.Context, req *GetOrganizationBillingAccountRequest, access *chi_types.AccessInfo) (*models.OrganizationBillingAccount, error)
 	GetArchivedOrganization(ctx context.Context, req *GetOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error)
 	ListOrganizations(ctx context.Context, req *ListOrganizationsRequest, access *chi_types.AccessInfo) (*ListOrganizationsResponse, error)
 
@@ -587,6 +588,33 @@ func (s *service) GetOrganization(ctx context.Context, req *GetOrganizationReque
 		}
 	}
 	return org, nil
+}
+
+// GetOrganizationBillingAccount returns the billing account for an organization after org/subscription read authz.
+// Platform admins may set IncludeArchived to load billing for archived organizations.
+func (s *service) GetOrganizationBillingAccount(ctx context.Context, req *GetOrganizationBillingAccountRequest, access *chi_types.AccessInfo) (*models.OrganizationBillingAccount, error) {
+	if err := s.validator.ValidateStruct(req); err != nil {
+		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
+	}
+
+	var org *models.Organization
+	var err error
+	if req.IncludeArchived && access != nil && access.IsAdmin {
+		org, err = s.organizationsRepo.GetByIDIncludeArchived(ctx, req.OrganizationID)
+	} else {
+		org, err = s.organizationsRepo.GetByID(ctx, req.OrganizationID)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.authorizer.CheckOrganizationPermission(access, org.ID.String(), constants.PERMISSION_ORG_READ); err != nil {
+		if subErr := s.authorizer.CheckOrganizationPermission(access, org.ID.String(), constants.PERMISSION_SUBSCRIPTION_READ); subErr != nil {
+			return nil, err
+		}
+	}
+
+	return s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 }
 
 func (s *service) GetArchivedOrganization(ctx context.Context, req *GetOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error) {

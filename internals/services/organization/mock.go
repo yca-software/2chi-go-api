@@ -70,6 +70,14 @@ func (m *MockService) GetOrganization(ctx context.Context, req *GetOrganizationR
 	return args.Get(0).(*models.Organization), args.Error(1)
 }
 
+func (m *MockService) GetOrganizationBillingAccount(ctx context.Context, req *GetOrganizationBillingAccountRequest, access *chi_types.AccessInfo) (*models.OrganizationBillingAccount, error) {
+	args := m.Called(ctx, req, access)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.OrganizationBillingAccount), args.Error(1)
+}
+
 func (m *MockService) GetArchivedOrganization(ctx context.Context, req *GetOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error) {
 	args := m.Called(ctx, req, access)
 	if args.Get(0) == nil {

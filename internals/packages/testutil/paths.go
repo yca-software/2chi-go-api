@@ -23,3 +23,8 @@ func MigrationsDir() string {
 func TemplatesDir() string {
 	return filepath.Join(ModuleRoot(), "templates")
 }
+
+// LocalesDir returns the path to the JSON locale files directory.
+func LocalesDir() string {
+	return filepath.Join(ModuleRoot(), "locales")
+}

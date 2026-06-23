@@ -30,7 +30,7 @@ redis:
 
 google:
   oauth:
-    redirect_url: "http://localhost/auth/google/callback"
+    redirect_url: "http://localhost:3000/oauth/google"
 
 paddle:
   environment: "sandbox"
@@ -58,6 +58,10 @@ paddle:
 
 	t.Setenv(EnvPrefix+"PADDLE__API_KEY", "paddle-api-key")
 	t.Setenv(EnvPrefix+"PADDLE__WEBHOOK_SECRET", "paddle-webhook-secret")
+	t.Setenv(EnvPrefix+"PADDLE__PRICES__BASIC_MONTHLY", "pri_basic_monthly")
+	t.Setenv(EnvPrefix+"PADDLE__PRICES__BASIC_ANNUAL", "pri_basic_annual")
+	t.Setenv(EnvPrefix+"PADDLE__PRICES__PRO_MONTHLY", "pri_pro_monthly")
+	t.Setenv(EnvPrefix+"PADDLE__PRICES__PRO_ANNUAL", "pri_pro_annual")
 	t.Setenv(EnvPrefix+"GOOGLE__MAPS__API_KEY", "google-maps-api-key")
 
 	cfg, err := Init()
@@ -86,7 +90,7 @@ paddle:
 		t.Fatalf("cfg.Auth.TokenHashPepper = %q, want %q", got, want)
 	}
 
-	if got, want := cfg.Google.OAuth.RedirectURL, "http://localhost/auth/google/callback"; got != want {
+	if got, want := cfg.Google.OAuth.RedirectURL, "http://localhost:3000/oauth/google"; got != want {
 		t.Fatalf("cfg.Google.OAuth.RedirectURL = %q, want %q", got, want)
 	}
 	if got, want := cfg.Google.OAuth.ClientID, "client-id"; got != want {
@@ -107,6 +111,9 @@ paddle:
 	}
 	if got, want := cfg.Paddle.WebhookSecret, "paddle-webhook-secret"; got != want {
 		t.Fatalf("cfg.Paddle.WebhookSecret = %q, want %q", got, want)
+	}
+	if got, want := cfg.Paddle.Prices.BasicMonthly, "pri_basic_monthly"; got != want {
+		t.Fatalf("cfg.Paddle.Prices.BasicMonthly = %q, want %q", got, want)
 	}
 }
 
@@ -147,5 +154,24 @@ func TestValidate_AuthSecretsTooShort(t *testing.T) {
 				t.Fatalf("Validate() error = %q, want substring %q", err.Error(), tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidate_PaddlePricesRequiredWhenAPIKeySet(t *testing.T) {
+	cfg := &Config{
+		Auth: AuthConfig{
+			AccessTokenSecret: "access-secret-with-at-least-32-characters",
+			TokenHashPepper:   "pepper-with-at-least-32-characters-long",
+		},
+		Paddle: PaddleConfig{
+			APIKey: "paddle-api-key",
+		},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() expected error")
+	}
+	if !strings.Contains(err.Error(), "paddle.prices") {
+		t.Fatalf("Validate() error = %q, want paddle.prices", err.Error())
 	}
 }

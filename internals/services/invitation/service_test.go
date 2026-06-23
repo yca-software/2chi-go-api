@@ -11,6 +11,7 @@ import (
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
 	"github.com/yca-software/2chi-go-api/internals/packages/authz"
+	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
 	invitation_repository "github.com/yca-software/2chi-go-api/internals/repositories/invitation"
@@ -19,8 +20,11 @@ import (
 	role_repository "github.com/yca-software/2chi-go-api/internals/repositories/role"
 	user_repository "github.com/yca-software/2chi-go-api/internals/repositories/user"
 	invitation_service "github.com/yca-software/2chi-go-api/internals/services/invitation"
+	chi_aws_ses "github.com/yca-software/2chi-go-aws/ses"
 	chi_error "github.com/yca-software/2chi-go-error"
+	chi_localizer "github.com/yca-software/2chi-go-localizer"
 	chi_logger "github.com/yca-software/2chi-go-logger"
+	chi_template "github.com/yca-software/2chi-go-template"
 	chi_repository "github.com/yca-software/2chi-go-repository"
 	chi_token "github.com/yca-software/2chi-go-token"
 	chi_types "github.com/yca-software/2chi-go-types"
@@ -266,6 +270,70 @@ func (s *InvitationServiceSuite) TestListInvitations_Success() {
 	}, access)
 	s.Require().NoError(err)
 	s.Len(*result, 1)
+}
+
+func (s *InvitationServiceSuite) TestCreateInvitation_EmailBodyContainsExpiryDays() {
+	roleID := uuid.New()
+	emailSender := &chi_aws_ses.MockSES{}
+	var capturedHTML string
+	var capturedSubject string
+	emailSender.On("Send", s.ctx, mock.Anything).
+		Run(func(args mock.Arguments) {
+			payload := args.Get(1).(chi_aws_ses.SESEmailDataPayload)
+			capturedHTML = payload.HTML
+			capturedSubject = payload.Subject
+		}).
+		Return(nil).
+		Once()
+
+	svc := invitation_service.New(invitation_service.Dependencies{
+		InvitationTTL: constants.INVITATION_TOKEN_TTL,
+		AppURL:        "https://app.example.com",
+		GenerateID:    uuid.NewV7,
+		Now:           func() time.Time { return s.now },
+		Validator:     chi_validator.New(),
+		Logger:        mockLogger(),
+		GenerateToken: chi_token.GenerateOpaqueToken,
+		HashToken:     testTokenHasher.Hash,
+		Authorizer:    authz.NewAuthorizer(func() time.Time { return s.now }),
+		Repositories: &repositories.Repositories{
+			Invitations:                 s.invitesRepo,
+			Organizations:               s.orgsRepo,
+			OrganizationMembers:         s.membersRepo,
+			OrganizationBillingAccounts: s.billingAccountsRepo,
+			Users:                       s.usersRepo,
+			Roles:                       s.rolesRepo,
+		},
+		RunInTx:        inlineRunInTx,
+		SessionCache:   authz.NewTestSessionCache(s.T(), constants.ACCESS_TOKEN_TTL),
+		Localizer:      chi_localizer.New(constants.SUPPORTED_LANGUAGES, constants.DEFAULT_LANGUAGE, testutil.LocalesDir()),
+		EmailSender:    emailSender,
+		EmailTemplates: chi_template.NewHTML(testutil.TemplatesDir()),
+	})
+
+	s.expectPaidOrg()
+	s.expectBasicBillingAccount().Twice()
+	s.membersRepo.On("ListByOrganizationID", s.ctx, s.orgID.String()).
+		Return(&[]models.OrganizationMemberWithUser{}, nil).Once()
+	s.expectRole(roleID)
+	s.expectNoPendingInvites()
+	s.usersRepo.On("GetByEmail", s.ctx, "invitee@example.com").
+		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
+	s.invitesRepo.On("Create", s.ctx, mock.AnythingOfType("*models.Invitation")).Return(nil).Once()
+
+	resp, err := svc.Create(s.ctx, &invitation_service.CreateRequest{
+		OrganizationID: s.orgID.String(),
+		Email:          "invitee@example.com",
+		RoleID:         roleID.String(),
+		InvitedByID:    uuid.New().String(),
+		InvitedByEmail: "admin@example.com",
+		Language:       "en",
+	}, s.writeAccess())
+	s.Require().NoError(err)
+	s.NotNil(resp.Invitation)
+	s.Contains(capturedHTML, "This invitation expires in 7 days.")
+	s.Contains(capturedSubject, "Acme")
+	emailSender.AssertExpectations(s.T())
 }
 
 func (s *InvitationServiceSuite) TestCreateInvitation_AddExistingUser_Success() {

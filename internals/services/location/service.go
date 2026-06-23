@@ -3,6 +3,7 @@ package location_service
 import (
 	"context"
 	"errors"
+	"strings"
 
 	chi_google "github.com/yca-software/2chi-go-google/maps"
 	chi_error "github.com/yca-software/2chi-go-error"
@@ -38,7 +39,22 @@ func (s *service) AutocompleteLocation(ctx context.Context, input string) (*chi_
 	return s.maps.AutocompleteLocation(ctx, input)
 }
 
+func e2eLocationStub(placeID string) *chi_google.LocationData {
+	return &chi_google.LocationData{
+		PlaceID: placeID,
+		Address: "1 E2E Test Street",
+		City:    "Test City",
+		Zip:     "00000",
+		Country: "US",
+		Timezone: "UTC",
+		Geo:     chi_google.Point{Lat: 0, Lng: 0},
+	}
+}
+
 func (s *service) GetLocationData(ctx context.Context, placeID string) (*chi_google.LocationData, error) {
+	if strings.HasPrefix(placeID, "e2e-") {
+		return e2eLocationStub(placeID), nil
+	}
 	if s.maps == nil {
 		return nil, chi_error.NewServiceUnavailableError(errors.New("maps not configured"), "LocationSearchUnavailable", nil)
 	}

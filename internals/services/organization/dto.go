@@ -29,7 +29,7 @@ type UpdateOrganizationRequest struct {
 type UpdateOrganizationSubscriptionRequest struct {
 	OrganizationID        string    `json:"-" validate:"required,uuid"`
 	CustomSubscription    bool      `json:"customSubscription" validate:"required"`
-	SubscriptionType      string    `json:"subscriptionType" validate:"required,oneof=basic pro enterprise"`
+	SubscriptionType      string    `json:"subscriptionType" validate:"required,oneof=free basic pro enterprise"`
 	SubscriptionSeats     int       `json:"subscriptionSeats" validate:"required,min=-1"`
 	SubscriptionExpiresAt time.Time `json:"subscriptionExpiresAt" validate:"required"`
 }
@@ -44,6 +44,11 @@ type RestoreOrganizationRequest struct {
 
 type GetOrganizationRequest struct {
 	OrganizationID string `json:"-" validate:"required,uuid"`
+}
+
+type GetOrganizationBillingAccountRequest struct {
+	OrganizationID  string `json:"-" validate:"required,uuid"`
+	IncludeArchived bool   `json:"-"`
 }
 
 type ListOrganizationsRequest struct {

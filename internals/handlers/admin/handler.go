@@ -59,6 +59,7 @@ func (h *AdminHandler) RegisterRoutes(e *echo.Echo, authMiddleware, adminMiddlew
 	org.GET("/archived/:orgId", h.GetArchivedOrganization)
 	org.POST("/archived/:orgId/restore", h.RestoreOrganization)
 	org.GET("/:orgId", h.GetOrganization)
+	org.GET("/:orgId/billing", h.GetOrganizationBillingAccount)
 	org.PATCH("/:orgId/subscription", h.UpdateOrganizationSubscription)
 	org.GET("/:orgId/audit-log", h.ListOrganizationAuditLogs)
 }
@@ -310,6 +311,36 @@ func (h *AdminHandler) GetOrganization(c echo.Context) error {
 	return c.JSON(http.StatusOK, org)
 }
 
+// GetOrganizationBillingAccount godoc
+// @Summary      Get organization billing account (admin)
+// @Description  Returns billing and subscription state for an organization (platform admin only)
+// @Tags         admin
+// @Accept       json
+// @Produce      json
+// @Param        orgId  path      string  true  "Organization ID"
+// @Success      200    {object}  models.OrganizationBillingAccount
+// @Failure      400    {object}  error.ErrorResponse
+// @Failure      401    {object}  error.ErrorResponse
+// @Failure      403    {object}  error.ErrorResponse
+// @Failure      404    {object}  error.ErrorResponse
+// @Failure      500    {object}  error.ErrorResponse
+// @Security     BearerAuth
+// @Router       /api/v1/admin/organization/{orgId}/billing [get]
+func (h *AdminHandler) GetOrganizationBillingAccount(c echo.Context) error {
+	ctx, accessInfo, err := handler_helpers.UserContext(c)
+	if err != nil {
+		return err
+	}
+	account, err := h.organizationsService.GetOrganizationBillingAccount(ctx, &organization_service.GetOrganizationBillingAccountRequest{
+		OrganizationID:  c.Param("orgId"),
+		IncludeArchived: true,
+	}, accessInfo)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, account)
+}
+
 // GetArchivedOrganization godoc
 // @Summary      Get archived organization (admin)
 // @Description  Returns an archived organization by ID (platform admin only)
@@ -407,7 +438,7 @@ func (h *AdminHandler) RestoreOrganization(c echo.Context) error {
 // @Produce      json
 // @Param        orgId         path      string                                          true  "Organization ID"
 // @Param        subscription  body      organization_service.UpdateOrganizationSubscriptionRequest  true  "Subscription update"
-// @Success      200           {object}  models.Organization
+// @Success      200           {object}  models.OrganizationBillingAccount
 // @Failure      400           {object}  error.ErrorResponse
 // @Failure      401           {object}  error.ErrorResponse
 // @Failure      403           {object}  error.ErrorResponse
@@ -426,11 +457,11 @@ func (h *AdminHandler) UpdateOrganizationSubscription(c echo.Context) error {
 		return err
 	}
 	req.OrganizationID = c.Param("orgId")
-	org, err := h.organizationsService.UpdateOrganizationSubscription(ctx, &req, accessInfo)
+	billingAccount, err := h.organizationsService.UpdateOrganizationSubscription(ctx, &req, accessInfo)
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusOK, org)
+	return c.JSON(http.StatusOK, billingAccount)
 }
 
 // ListOrganizationAuditLogs godoc

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/PaddleHQ/paddle-go-sdk/v4"
@@ -112,6 +113,9 @@ func (s *service) syncSubscriptionExpiry(account *models.OrganizationBillingAcco
 }
 
 func (s *service) CreateCustomer(ctx context.Context, input *CreateCustomerInput) (string, error) {
+	if strings.HasPrefix(strings.ToLower(input.BillingEmail), "e2e+") {
+		return "ctm_e2e_" + input.OrganizationID, nil
+	}
 	if s.paddleCustomer == nil {
 		return "", chi_error.NewServiceUnavailableError(errors.New("paddle not configured"), "ServiceUnavailable", nil)
 	}
@@ -152,6 +156,12 @@ func (s *service) UpdateCustomer(ctx context.Context, input *UpdateCustomerInput
 
 func (s *service) ReleaseProvisionedCustomer(ctx context.Context, organizationID string, billingAccount *models.OrganizationBillingAccount) error {
 	if billingAccount == nil || billingAccount.ProviderCustomerID == "" {
+		return nil
+	}
+	if strings.HasPrefix(billingAccount.ProviderCustomerID, "ctm_e2e_") {
+		return nil
+	}
+	if s.getPaddleCustomer == nil || s.paddleCustomer == nil {
 		return nil
 	}
 

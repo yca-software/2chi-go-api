@@ -119,9 +119,17 @@ type MapsConfig struct {
 }
 
 type PaddleConfig struct {
-	Environment   string `koanf:"environment"`
-	APIKey        string `koanf:"api_key"`
-	WebhookSecret string `koanf:"webhook_secret"`
+	Environment   string             `koanf:"environment"`
+	APIKey        string             `koanf:"api_key"`
+	WebhookSecret string             `koanf:"webhook_secret"`
+	Prices        PaddlePricesConfig `koanf:"prices"`
+}
+
+type PaddlePricesConfig struct {
+	BasicMonthly string `koanf:"basic_monthly"`
+	BasicAnnual  string `koanf:"basic_annual"`
+	ProMonthly   string `koanf:"pro_monthly"`
+	ProAnnual    string `koanf:"pro_annual"`
 }
 
 // Init loads non-secret config from YAML and secret values from process
@@ -164,6 +172,34 @@ func (c *Config) Validate() error {
 	}
 	if len(c.Auth.TokenHashPepper) < MinAuthSecretLen {
 		return fmt.Errorf("config: auth.token_hash_pepper must be at least %d characters", MinAuthSecretLen)
+	}
+	if c.Paddle.APIKey != "" {
+		if err := c.Paddle.Prices.validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p PaddlePricesConfig) validate() error {
+	missing := make([]string, 0, 4)
+	if p.BasicMonthly == "" {
+		missing = append(missing, "basic_monthly")
+	}
+	if p.BasicAnnual == "" {
+		missing = append(missing, "basic_annual")
+	}
+	if p.ProMonthly == "" {
+		missing = append(missing, "pro_monthly")
+	}
+	if p.ProAnnual == "" {
+		missing = append(missing, "pro_annual")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf(
+			"config: paddle.prices (%s) required when paddle.api_key is set (must match react-spa VITE_PADDLE_PRICE_*)",
+			strings.Join(missing, ", "),
+		)
 	}
 	return nil
 }

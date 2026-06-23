@@ -62,6 +62,7 @@ func (h *OrganizationsHandler) RegisterRoutes(e *echo.Echo, authMiddleware echo.
 
 	detail := orgV1.Group("/:orgId")
 	detail.GET("", h.GetOrganization)
+	detail.GET("/billing", h.GetOrganizationBillingAccount)
 	detail.PATCH("", h.UpdateOrganization)
 	detail.POST("/archive", h.ArchiveOrganization)
 	if h.billingService != nil {
@@ -147,6 +148,36 @@ func (h *OrganizationsHandler) GetOrganization(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, org)
+}
+
+// GetOrganizationBillingAccount godoc
+// @Summary      Get organization billing account
+// @Description  Retrieves billing and subscription state for an organization
+// @Tags         organization
+// @Accept       json
+// @Produce      json
+// @Param        orgId  path      string  true  "Organization ID"
+// @Success      200    {object}  models.OrganizationBillingAccount
+// @Failure      400    {object}  error.ErrorResponse
+// @Failure      401    {object}  error.ErrorResponse
+// @Failure      403    {object}  error.ErrorResponse
+// @Failure      404    {object}  error.ErrorResponse
+// @Failure      500    {object}  error.ErrorResponse
+// @Security     BearerAuth
+// @Router       /api/v1/organization/{orgId}/billing [get]
+func (h *OrganizationsHandler) GetOrganizationBillingAccount(c echo.Context) error {
+	ctx, accessInfo, orgID, err := handler_helpers.OrgHandlerContext(c)
+	if err != nil {
+		return err
+	}
+
+	account, err := h.organizationsService.GetOrganizationBillingAccount(ctx, &organization_service.GetOrganizationBillingAccountRequest{
+		OrganizationID: orgID,
+	}, accessInfo)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, account)
 }
 
 // UpdateOrganization godoc
@@ -470,7 +501,7 @@ func (h *OrganizationsHandler) CreateCustomerPortalSession(c echo.Context) error
 // @Produce      json
 // @Param        orgId        path      string                              true  "Organization ID"
 // @Param        transaction  body      billing_service.ProcessTransactionRequest  true  "Transaction request"
-// @Success      200          {object}  models.Organization
+// @Success      200          {object}  models.OrganizationBillingAccount
 // @Failure      400          {object}  error.ErrorResponse
 // @Failure      401          {object}  error.ErrorResponse
 // @Failure      403          {object}  error.ErrorResponse
@@ -489,9 +520,9 @@ func (h *OrganizationsHandler) ProcessTransaction(c echo.Context) error {
 		return err
 	}
 	req.OrganizationID = orgID
-	org, err := h.billingService.ProcessTransaction(ctx, &req, accessInfo)
+	billingAccount, err := h.billingService.ProcessTransaction(ctx, &req, accessInfo)
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusOK, org)
+	return c.JSON(http.StatusOK, billingAccount)
 }

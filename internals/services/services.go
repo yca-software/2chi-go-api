@@ -131,10 +131,10 @@ func NewServices(
 		PaddleWebhookSecret: cfg.Paddle.WebhookSecret,
 		PriceCatalog: billing_service.PriceCatalog{
 			PriceIDs: billing_service.PriceIDs{
-				BasicMonthly: constants.PRICE_ID_BASIC_MONTHLY,
-				BasicAnnual:  constants.PRICE_ID_BASIC_ANNUAL,
-				ProMonthly:   constants.PRICE_ID_PRO_MONTHLY,
-				ProAnnual:    constants.PRICE_ID_PRO_ANNUAL,
+				BasicMonthly: cfg.Paddle.Prices.BasicMonthly,
+				BasicAnnual:  cfg.Paddle.Prices.BasicAnnual,
+				ProMonthly:   cfg.Paddle.Prices.ProMonthly,
+				ProAnnual:    cfg.Paddle.Prices.ProAnnual,
 			},
 		},
 		AuditService: auditSrv,

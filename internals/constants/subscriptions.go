@@ -21,9 +21,4 @@ const (
 	BILLING_PROVIDER_CUSTOM = "custom"
 
 	SUBSCRIPTION_PAST_DUE_GRACE_DAYS = 7
-
-	PRICE_ID_BASIC_MONTHLY = "pri_basic_monthly"
-	PRICE_ID_BASIC_ANNUAL  = "pri_basic_annual"
-	PRICE_ID_PRO_MONTHLY   = "pri_pro_monthly"
-	PRICE_ID_PRO_ANNUAL    = "pri_pro_annual"
 )

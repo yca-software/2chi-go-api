@@ -61,7 +61,7 @@ google:
   oauth:
     client_id: ""
     client_secret: ""
-    redirect_url: "http://localhost:3000/auth/google/callback"
+    redirect_url: "http://localhost:3000/oauth/google"
   maps:
     api_key: ""
 
@@ -69,3 +69,9 @@ paddle:
   api_key: ""
   webhook_secret: ""
   environment: "sandbox"
+  # Must match react-spa VITE_PADDLE_PRICE_* (override via 2CHI_PADDLE__PRICES__* in .env.local).
+  prices:
+    basic_monthly: ""
+    basic_annual: ""
+    pro_monthly: ""
+    pro_annual: ""

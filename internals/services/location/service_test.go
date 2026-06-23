@@ -54,6 +54,34 @@ func (s *LocationServiceSuite) TestAutocompleteLocation_Success() {
 	s.Equal(expected, resp)
 }
 
+func (s *LocationServiceSuite) TestGetLocationData_E2EStubWhenMapsNotConfigured() {
+	svc := location_service.New(location_service.Dependencies{
+		Logger: s.logger,
+	})
+	result, err := svc.GetLocationData(s.ctx, "e2e-local-place")
+	s.Require().NoError(err)
+	s.Equal("e2e-local-place", result.PlaceID)
+	s.Equal("Test City", result.City)
+}
+
+func (s *LocationServiceSuite) TestGetLocationData_E2EStubWhenMapsConfigured() {
+	result, err := s.svc.GetLocationData(s.ctx, "e2e-local-place")
+	s.Require().NoError(err)
+	s.Equal("e2e-local-place", result.PlaceID)
+	s.maps.AssertNotCalled(s.T(), "GetLocationData")
+}
+
+func (s *LocationServiceSuite) TestGetLocationData_NotConfigured() {
+	svc := location_service.New(location_service.Dependencies{
+		Logger: s.logger,
+	})
+	_, err := svc.GetLocationData(s.ctx, "place_1")
+	s.Error(err)
+	if apiErr, ok := chi_error.AsError(err); ok {
+		s.Equal("LocationSearchUnavailable", apiErr.ErrorCode)
+	}
+}
+
 func (s *LocationServiceSuite) TestGetLocationData_PropagatesError() {
 	s.maps.On("GetLocationData", s.ctx, "place_1").Return(nil, errors.New("maps down")).Once()
 

@@ -2,6 +2,12 @@ package billing_service_test
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -38,6 +44,7 @@ type BillingServiceSuite struct {
 	auditSvc            *audit_service.MockService
 	svc                 billing_service.Service
 	priceID             string
+	webhookSecret       string
 }
 
 func TestBillingServiceSuite(t *testing.T) {
@@ -49,6 +56,7 @@ func (s *BillingServiceSuite) SetupTest() {
 	s.now = time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	s.orgID = uuid.New()
 	s.priceID = "pri_basic_monthly"
+	s.webhookSecret = "test-webhook-secret"
 	s.orgsRepo = &organization_repository.MockRepository{}
 	s.billingAccountsRepo = &billing_account_repository.MockRepository{}
 	s.paddleCustomer = &chi_paddle_customer.MockCustomerService{}
@@ -70,7 +78,8 @@ func (s *BillingServiceSuite) SetupTest() {
 		PriceCatalog: billing_service.PriceCatalog{
 			PriceIDs: billing_service.PriceIDs{BasicMonthly: s.priceID},
 		},
-		AuditService: s.auditSvc,
+		PaddleWebhookSecret: s.webhookSecret,
+		AuditService:        s.auditSvc,
 	})
 }
 
@@ -184,6 +193,29 @@ func (s *BillingServiceSuite) TestCreateCustomer_PaddleNotConfigured() {
 	s.Error(err)
 }
 
+func (s *BillingServiceSuite) TestCreateCustomer_E2EStubWhenPaddleNotConfigured() {
+	svc := billing_service.New(billing_service.Dependencies{
+		Logger:       mockLogger(),
+		Repositories: &repositories.Repositories{},
+	})
+	customerID, err := svc.CreateCustomer(s.ctx, &billing_service.CreateCustomerInput{
+		OrganizationID: s.orgID.String(),
+		BillingEmail:   "e2e+test@example.com",
+	})
+	s.Require().NoError(err)
+	s.Equal("ctm_e2e_"+s.orgID.String(), customerID)
+}
+
+func (s *BillingServiceSuite) TestCreateCustomer_E2EStubWhenPaddleConfigured() {
+	customerID, err := s.svc.CreateCustomer(s.ctx, &billing_service.CreateCustomerInput{
+		OrganizationID: s.orgID.String(),
+		BillingEmail:   "e2e+test@example.com",
+	})
+	s.Require().NoError(err)
+	s.Equal("ctm_e2e_"+s.orgID.String(), customerID)
+	s.paddleCustomer.AssertNotCalled(s.T(), "CreateCustomer")
+}
+
 func (s *BillingServiceSuite) TestUpdateCustomer_NoOpWithoutClient() {
 	svc := billing_service.New(billing_service.Dependencies{
 		Logger:       mockLogger(),
@@ -198,6 +230,11 @@ func (s *BillingServiceSuite) TestUpdateCustomer_NoOpWithoutClient() {
 
 func (s *BillingServiceSuite) TestReleaseProvisionedCustomer_NoOpWhenEmptyCustomer() {
 	s.NoError(s.svc.ReleaseProvisionedCustomer(s.ctx, s.orgID.String(), s.billingAccount("")))
+}
+
+func (s *BillingServiceSuite) TestReleaseProvisionedCustomer_NoOpForE2EStubCustomer() {
+	account := s.billingAccount("ctm_e2e_" + s.orgID.String())
+	s.NoError(s.svc.ReleaseProvisionedCustomer(s.ctx, s.orgID.String(), account))
 }
 
 func (s *BillingServiceSuite) TestProcessTransaction_Validation() {
@@ -246,6 +283,50 @@ func (s *BillingServiceSuite) TestHandleWebhook_InvalidSignature() {
 	if apiErr, ok := chi_error.AsError(err); ok {
 		s.Equal("Unauthorized", apiErr.ErrorCode)
 	}
+}
+
+func (s *BillingServiceSuite) TestHandleWebhook_SubscriptionCreated_UpdatesBillingAccount() {
+	customerID := "ctm_123"
+	account := s.billingAccount(customerID)
+	account.SubscriptionTier = constants.TIER_FREE
+	account.ProviderSubscriptionID = ""
+
+	payload, err := json.Marshal(map[string]any{
+		"event_id":   "evt_123",
+		"event_type": "subscription.created",
+		"data": map[string]any{
+			"id":          "sub_123",
+			"customer_id": customerID,
+			"status":      "active",
+			"items": []any{
+				map[string]any{
+					"price": map[string]any{"id": s.priceID},
+				},
+			},
+			"current_billing_period": map[string]any{
+				"ends_at": "2024-05-12T10:37:59.556997Z",
+			},
+		},
+	})
+	s.Require().NoError(err)
+
+	s.billingAccountsRepo.On("GetByProviderAndProviderCustomerID", s.ctx, constants.BILLING_PROVIDER_PADDLE, customerID).
+		Return(account, nil).Once()
+	s.billingAccountsRepo.On("Update", s.ctx, mock.MatchedBy(func(updated *models.OrganizationBillingAccount) bool {
+		return updated.ProviderSubscriptionID == "sub_123" &&
+			updated.SubscriptionTier == constants.TIER_BASIC &&
+			updated.SubscriptionExpiresAt != nil
+	})).Return(nil).Once()
+
+	err = s.svc.HandleWebhook(s.ctx, payload, signPaddleWebhook(s.webhookSecret, payload))
+	s.NoError(err)
+}
+
+func signPaddleWebhook(secret string, body []byte) string {
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(ts + ":" + string(body)))
+	return fmt.Sprintf("ts=%s;h1=%s", ts, hex.EncodeToString(mac.Sum(nil)))
 }
 
 func mockLogger() chi_logger.Logger {
