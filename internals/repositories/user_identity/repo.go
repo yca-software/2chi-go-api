@@ -13,41 +13,41 @@ import (
 )
 
 const (
-	UserIdentitiesTableName = "user_identities"
+	TableName = "user_identities"
 )
 
 var (
-	UserIdentitiesColumns = []string{"id", "created_at", "updated_at", "user_id", "provider", "provider_user_id"}
+	Columns = []string{"id", "created_at", "updated_at", "user_id", "provider", "provider_user_id"}
 )
 
-type UserIdentityRepository interface {
-	WithTx(tx chi_repository.Tx) UserIdentityRepository
+type Repository interface {
+	WithTx(tx chi_repository.Tx) Repository
 
-	CreateUserIdentity(ctx context.Context, identity *models.UserIdentity) error
-	UpdateUserIdentity(ctx context.Context, identity *models.UserIdentity) error
-	GetUserIdentityByProviderAndProviderUserID(ctx context.Context, provider, providerUserID string) (*models.UserIdentity, error)
-	GetUserIdentityByUserIDAndProvider(ctx context.Context, userID, provider string) (*models.UserIdentity, error)
+	Create(ctx context.Context, identity *models.UserIdentity) error
+	Update(ctx context.Context, identity *models.UserIdentity) error
+	GetByProviderAndProviderUserID(ctx context.Context, provider, providerUserID string) (*models.UserIdentity, error)
+	GetByUserIDAndProvider(ctx context.Context, userID, provider string) (*models.UserIdentity, error)
 }
 
-type userIdentityRepository struct {
-	userIdentitiesRepo chi_repository.Repository[models.UserIdentity]
+type repository struct {
+	repo chi_repository.Repository[models.UserIdentity]
 }
 
-func NewUserIdentityRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) UserIdentityRepository {
-	return &userIdentityRepository{
-		userIdentitiesRepo: chi_repository.NewRepository[models.UserIdentity](db, UserIdentitiesTableName, UserIdentitiesColumns, metricsHook),
+func NewRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) Repository {
+	return &repository{
+		repo: chi_repository.NewRepository[models.UserIdentity](db, TableName, Columns, metricsHook),
 	}
 }
 
-func (r *userIdentityRepository) WithTx(tx chi_repository.Tx) UserIdentityRepository {
-	return &userIdentityRepository{
-		userIdentitiesRepo: r.userIdentitiesRepo.WithTx(tx),
+func (r *repository) WithTx(tx chi_repository.Tx) Repository {
+	return &repository{
+		repo: r.repo.WithTx(tx),
 	}
 }
 
-func (r *userIdentityRepository) CreateUserIdentity(ctx context.Context, identity *models.UserIdentity) error {
+func (r *repository) Create(ctx context.Context, identity *models.UserIdentity) error {
 	now := time.Now()
-	return r.userIdentitiesRepo.Create(ctx, map[string]any{
+	return r.repo.Create(ctx, map[string]any{
 		"id":               identity.ID,
 		"created_at":       now,
 		"updated_at":       now,
@@ -57,22 +57,22 @@ func (r *userIdentityRepository) CreateUserIdentity(ctx context.Context, identit
 	})
 }
 
-func (r *userIdentityRepository) UpdateUserIdentity(ctx context.Context, identity *models.UserIdentity) error {
-	return r.userIdentitiesRepo.Update(ctx, squirrel.Eq{"id": identity.ID}, map[string]any{
+func (r *repository) Update(ctx context.Context, identity *models.UserIdentity) error {
+	return r.repo.Update(ctx, squirrel.Eq{"id": identity.ID}, map[string]any{
 		"provider_user_id": identity.ProviderUserID,
 		"updated_at":       time.Now(),
 	})
 }
 
-func (r *userIdentityRepository) GetUserIdentityByProviderAndProviderUserID(ctx context.Context, provider, providerUserID string) (*models.UserIdentity, error) {
-	return r.userIdentitiesRepo.Get(ctx, squirrel.Eq{
+func (r *repository) GetByProviderAndProviderUserID(ctx context.Context, provider, providerUserID string) (*models.UserIdentity, error) {
+	return r.repo.Get(ctx, squirrel.Eq{
 		"provider":         provider,
 		"provider_user_id": providerUserID,
 	}, nil)
 }
 
-func (r *userIdentityRepository) GetUserIdentityByUserIDAndProvider(ctx context.Context, userID, provider string) (*models.UserIdentity, error) {
-	return r.userIdentitiesRepo.Get(ctx, squirrel.Eq{
+func (r *repository) GetByUserIDAndProvider(ctx context.Context, userID, provider string) (*models.UserIdentity, error) {
+	return r.repo.Get(ctx, squirrel.Eq{
 		"user_id":  userID,
 		"provider": provider,
 	}, nil)

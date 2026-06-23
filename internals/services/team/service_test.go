@@ -10,15 +10,15 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
+	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
 	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
 	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
-	team_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/team_member"
 	team_repository "github.com/yca-software/2chi-go-api/internals/repositories/team"
+	team_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/team_member"
 	audit_service "github.com/yca-software/2chi-go-api/internals/services/audit"
 	team_service "github.com/yca-software/2chi-go-api/internals/services/team"
-	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_types "github.com/yca-software/2chi-go-types"
 	chi_validator "github.com/yca-software/2chi-go-validator"
@@ -29,11 +29,11 @@ type TeamServiceSuite struct {
 	ctx             context.Context
 	now             time.Time
 	orgID           uuid.UUID
-	teamsRepo       *team_repository.MockTeamsRepository
-	teamMembers     *team_member_repository.MockTeamMembersRepository
-	orgsRepo        *organization_repository.MockOrganizationsRepository
-	membersRepo     *organization_member_repository.MockOrganizationMembersRepository
-	billingAccounts *billing_account_repository.MockOrganizationBillingAccountsRepository
+	teamsRepo       *team_repository.MockRepository
+	teamMembers     *team_member_repository.MockRepository
+	orgsRepo        *organization_repository.MockRepository
+	membersRepo     *organization_member_repository.MockRepository
+	billingAccounts *billing_account_repository.MockRepository
 	auditSvc        *audit_service.MockService
 	svc             team_service.Service
 }
@@ -46,11 +46,11 @@ func (s *TeamServiceSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.now = time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	s.orgID = uuid.New()
-	s.teamsRepo = &team_repository.MockTeamsRepository{}
-	s.teamMembers = &team_member_repository.MockTeamMembersRepository{}
-	s.orgsRepo = &organization_repository.MockOrganizationsRepository{}
-	s.membersRepo = &organization_member_repository.MockOrganizationMembersRepository{}
-	s.billingAccounts = &billing_account_repository.MockOrganizationBillingAccountsRepository{}
+	s.teamsRepo = &team_repository.MockRepository{}
+	s.teamMembers = &team_member_repository.MockRepository{}
+	s.orgsRepo = &organization_repository.MockRepository{}
+	s.membersRepo = &organization_member_repository.MockRepository{}
+	s.billingAccounts = &billing_account_repository.MockRepository{}
 	s.auditSvc = &audit_service.MockService{}
 
 	s.svc = team_service.New(team_service.Dependencies{
@@ -72,16 +72,15 @@ func (s *TeamServiceSuite) SetupTest() {
 
 func (s *TeamServiceSuite) expectProOrg() {
 	expiresAt := s.now.Add(24 * time.Hour)
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
+	s.orgsRepo.On("GetByID", s.ctx, s.orgID.String()).
 		Return(&models.Organization{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: s.orgID},
 			},
 			Name: "Acme",
 		}, nil).Once()
-	s.billingAccounts.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccounts.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(&models.OrganizationBillingAccount{
-			ModelBase:             chi_types.ModelBase{ID: s.orgID},
 			OrganizationID:        s.orgID,
 			Provider:              constants.BILLING_PROVIDER_PADDLE,
 			SubscriptionTier:      constants.TIER_PRO,
@@ -111,8 +110,8 @@ func (s *TeamServiceSuite) TestCreateTeam_Validation_MissingName() {
 
 func (s *TeamServiceSuite) TestCreateTeam_Success() {
 	s.expectProOrg()
-	s.teamsRepo.On("CreateTeam", s.ctx, mock.AnythingOfType("*models.Team")).Return(nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.teamsRepo.On("Create", s.ctx, mock.AnythingOfType("*models.Team")).Return(nil).Once()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
 	team, err := s.svc.CreateTeam(s.ctx, &team_service.CreateTeamRequest{
 		OrganizationID: s.orgID.String(),
@@ -124,16 +123,15 @@ func (s *TeamServiceSuite) TestCreateTeam_Success() {
 }
 
 func (s *TeamServiceSuite) TestCreateTeam_FreePlanFeatureDenied() {
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
+	s.orgsRepo.On("GetByID", s.ctx, s.orgID.String()).
 		Return(&models.Organization{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: s.orgID},
 			},
 			Name: "Acme",
 		}, nil).Once()
-	s.billingAccounts.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccounts.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(&models.OrganizationBillingAccount{
-			ModelBase:        chi_types.ModelBase{ID: s.orgID},
 			OrganizationID:   s.orgID,
 			Provider:         constants.BILLING_PROVIDER_PADDLE,
 			SubscriptionTier: constants.TIER_FREE,
@@ -154,14 +152,14 @@ func (s *TeamServiceSuite) TestListTeams_Success() {
 		OrganizationID: s.orgID,
 		Name:           "Platform",
 	}}
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
+	s.orgsRepo.On("GetByID", s.ctx, s.orgID.String()).
 		Return(&models.Organization{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: s.orgID},
 			},
 			Name: "Acme",
 		}, nil).Once()
-	s.teamsRepo.On("ListTeamsByOrganizationID", s.ctx, s.orgID.String()).Return(&teams, nil).Once()
+	s.teamsRepo.On("ListByOrganizationID", s.ctx, s.orgID.String()).Return(&teams, nil).Once()
 
 	access := s.writeAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_TEAM_READ}
@@ -176,14 +174,13 @@ func (s *TeamServiceSuite) TestListTeams_Success() {
 func (s *TeamServiceSuite) TestDeleteTeam_Success() {
 	teamID := uuid.New()
 	s.expectProOrg()
-	s.teamsRepo.On("GetTeamByID", s.ctx, s.orgID.String(), teamID.String()).
+	s.teamsRepo.On("GetByID", s.ctx, s.orgID.String(), teamID.String()).
 		Return(&models.Team{
-			ModelBase:      chi_types.ModelBase{ID: teamID},
 			OrganizationID: s.orgID,
 			Name:           "Platform",
 		}, nil).Once()
-	s.teamsRepo.On("DeleteTeam", s.ctx, s.orgID.String(), teamID.String()).Return(nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.teamsRepo.On("Delete", s.ctx, s.orgID.String(), teamID.String()).Return(nil).Once()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
 	access := s.writeAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_TEAM_DELETE}
@@ -198,15 +195,14 @@ func (s *TeamServiceSuite) TestDeleteTeam_Success() {
 func (s *TeamServiceSuite) TestUpdateTeam_Success() {
 	teamID := uuid.New()
 	s.expectProOrg()
-	s.teamsRepo.On("GetTeamByID", s.ctx, s.orgID.String(), teamID.String()).
+	s.teamsRepo.On("GetByID", s.ctx, s.orgID.String(), teamID.String()).
 		Return(&models.Team{
-			ModelBase:      chi_types.ModelBase{ID: teamID},
 			OrganizationID: s.orgID,
 			Name:           "Old",
 			Description:    "d",
 		}, nil).Once()
-	s.teamsRepo.On("UpdateTeam", s.ctx, mock.AnythingOfType("*models.Team")).Return(nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.teamsRepo.On("Update", s.ctx, mock.AnythingOfType("*models.Team")).Return(nil).Once()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
 	team, err := s.svc.UpdateTeam(s.ctx, &team_service.UpdateTeamRequest{
 		OrganizationID: s.orgID.String(),
@@ -222,26 +218,24 @@ func (s *TeamServiceSuite) TestAddTeamMember_Success() {
 	teamID := uuid.New()
 	userID := uuid.New()
 	s.expectProOrg()
-	s.teamsRepo.On("GetTeamByID", s.ctx, s.orgID.String(), teamID.String()).
+	s.teamsRepo.On("GetByID", s.ctx, s.orgID.String(), teamID.String()).
 		Return(&models.Team{
-			ModelBase:      chi_types.ModelBase{ID: teamID},
 			OrganizationID: s.orgID,
 			Name:           "Platform",
 		}, nil).Once()
-	s.membersRepo.On("GetOrganizationMemberByUserIDAndOrganizationID", s.ctx, userID.String(), s.orgID.String()).
+	s.membersRepo.On("GetByUserID", s.ctx, s.orgID.String(), userID.String()).
 		Return(&models.OrganizationMember{}, nil).Once()
-	s.teamMembers.On("CreateTeamMember", s.ctx, mock.AnythingOfType("*models.TeamMember")).Return(nil).Once()
-	s.teamMembers.On("GetTeamMemberByIDWithUser", s.ctx, s.orgID.String(), mock.Anything).
+	s.teamMembers.On("Create", s.ctx, mock.AnythingOfType("*models.TeamMember")).Return(nil).Once()
+	s.teamMembers.On("GetByIDWithUser", s.ctx, s.orgID.String(), mock.Anything).
 		Return(&models.TeamMemberWithUser{
 			TeamMember: models.TeamMember{
-				ModelBase:      chi_types.ModelBase{ID: uuid.New()},
 				OrganizationID: s.orgID,
 				TeamID:         teamID,
 				UserID:         userID,
 			},
 			UserEmail: "member@example.com",
 		}, nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Once()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Once()
 
 	access := s.writeAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_TEAM_MEMBER_WRITE}
@@ -260,24 +254,22 @@ func (s *TeamServiceSuite) TestRemoveTeamMember_Success() {
 	memberID := uuid.New()
 	userID := uuid.New()
 	s.expectProOrg()
-	s.teamMembers.On("GetTeamMemberByIDWithUser", s.ctx, s.orgID.String(), memberID.String()).
+	s.teamMembers.On("GetByIDWithUser", s.ctx, s.orgID.String(), memberID.String()).
 		Return(&models.TeamMemberWithUser{
 			TeamMember: models.TeamMember{
-				ModelBase:      chi_types.ModelBase{ID: memberID},
 				OrganizationID: s.orgID,
 				TeamID:         teamID,
 				UserID:         userID,
 			},
 			UserEmail: "member@example.com",
 		}, nil).Once()
-	s.teamsRepo.On("GetTeamByID", s.ctx, s.orgID.String(), teamID.String()).
+	s.teamsRepo.On("GetByID", s.ctx, s.orgID.String(), teamID.String()).
 		Return(&models.Team{
-			ModelBase:      chi_types.ModelBase{ID: teamID},
 			OrganizationID: s.orgID,
 			Name:           "Platform",
 		}, nil).Once()
-	s.teamMembers.On("DeleteTeamMember", s.ctx, s.orgID.String(), memberID.String()).Return(nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Once()
+	s.teamMembers.On("Delete", s.ctx, s.orgID.String(), memberID.String()).Return(nil).Once()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Once()
 
 	access := s.writeAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_TEAM_MEMBER_DELETE}
@@ -301,12 +293,11 @@ func (s *TeamServiceSuite) TestListTeamMembers_Success() {
 		},
 	}}
 	s.expectProOrg()
-	s.teamsRepo.On("GetTeamByID", s.ctx, s.orgID.String(), teamID.String()).
+	s.teamsRepo.On("GetByID", s.ctx, s.orgID.String(), teamID.String()).
 		Return(&models.Team{
-			ModelBase:      chi_types.ModelBase{ID: teamID},
 			OrganizationID: s.orgID,
 		}, nil).Once()
-	s.teamMembers.On("ListTeamMembersByTeamID", s.ctx, s.orgID.String(), teamID.String()).Return(&members, nil).Once()
+	s.teamMembers.On("ListByTeamID", s.ctx, s.orgID.String(), teamID.String()).Return(&members, nil).Once()
 
 	access := s.writeAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_TEAM_MEMBER_READ}

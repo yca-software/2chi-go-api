@@ -63,7 +63,7 @@ func (s *RolesHandlerSuite) withAccess(next echo.HandlerFunc) echo.HandlerFunc {
 
 func (s *RolesHandlerSuite) TestListRoles_Success() {
 	roles := []models.Role{{Name: "Admin"}}
-	s.roleService.On("ListRoles", mock.Anything, mock.MatchedBy(func(req *role_service.ListRolesRequest) bool {
+	s.roleService.On("List", mock.Anything, mock.MatchedBy(func(req *role_service.ListRequest) bool {
 		return req.OrganizationID == testOrgID
 	}), s.userAccess).Return(&roles, nil).Once()
 
@@ -78,7 +78,7 @@ func (s *RolesHandlerSuite) TestListRoles_Success() {
 }
 
 func (s *RolesHandlerSuite) TestCreateRole_Success() {
-	s.roleService.On("CreateRole", mock.Anything, mock.MatchedBy(func(req *role_service.CreateRoleRequest) bool {
+	s.roleService.On("Create", mock.Anything, mock.MatchedBy(func(req *role_service.CreateRequest) bool {
 		return req.OrganizationID == testOrgID && req.Name == "Editor"
 	}), s.userAccess).Return(&models.Role{Name: "Editor"}, nil).Once()
 
@@ -94,7 +94,7 @@ func (s *RolesHandlerSuite) TestCreateRole_Success() {
 }
 
 func (s *RolesHandlerSuite) TestDeleteRole_Success() {
-	s.roleService.On("DeleteRole", mock.Anything, mock.MatchedBy(func(req *role_service.DeleteRoleRequest) bool {
+	s.roleService.On("Delete", mock.Anything, mock.MatchedBy(func(req *role_service.DeleteRequest) bool {
 		return req.OrganizationID == testOrgID && req.RoleID == testRoleID
 	}), s.userAccess).Return(nil).Once()
 

@@ -18,12 +18,12 @@ import (
 	platform_repository "github.com/yca-software/2chi-go-api/internals/packages/repository"
 	platform_subscription "github.com/yca-software/2chi-go-api/internals/packages/subscription"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
-	impersonation_session_repository "github.com/yca-software/2chi-go-api/internals/repositories/impersonation_session"
+	admin_access_repository "github.com/yca-software/2chi-go-api/internals/repositories/admin_access"
 	organization_billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
+	impersonation_session_repository "github.com/yca-software/2chi-go-api/internals/repositories/impersonation_session"
 	invitation_repository "github.com/yca-software/2chi-go-api/internals/repositories/invitation"
 	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
 	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
-	admin_access_repository "github.com/yca-software/2chi-go-api/internals/repositories/admin_access"
 	user_repository "github.com/yca-software/2chi-go-api/internals/repositories/user"
 	user_email_verification_token_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_email_verification_token"
 	user_identity_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_identity"
@@ -84,18 +84,18 @@ type service struct {
 	hashToken                       func(token string) string
 	runInTx                         repositories.TxRunner
 	authorizer                      *authz.Authorizer
-	usersRepo                       user_repository.UsersRepository
-	adminAccessRepo                 admin_access_repository.AdminAccessRepository
-	userIdentitiesRepo              user_identity_repository.UserIdentityRepository
-	userRefreshTokensRepo           user_refresh_token_repository.UserRefreshTokenRepository
-	userPasswordResetTokensRepo     user_password_reset_token_repository.UserPasswordResetTokenRepository
-	userEmailVerificationTokensRepo user_email_verification_token_repository.UserEmailVerificationTokenRepository
-	legalDocumentAcceptancesRepo    user_legal_document_acceptance_repository.UserLegalDocumentAcceptanceRepository
-	impersonationSessionsRepo       impersonation_session_repository.ImpersonationSessionsRepository
-	organizationsRepo               organization_repository.OrganizationsRepository
-	billingAccountsRepo             organization_billing_account_repository.OrganizationBillingAccountsRepository
-	organizationMembersRepo         organization_member_repository.OrganizationMembersRepository
-	invitationsRepo                 invitation_repository.InvitationsRepository
+	usersRepo                       user_repository.Repository
+	adminAccessRepo                 admin_access_repository.Repository
+	userIdentitiesRepo              user_identity_repository.Repository
+	userRefreshTokensRepo           user_refresh_token_repository.Repository
+	userPasswordResetTokensRepo     user_password_reset_token_repository.Repository
+	userEmailVerificationTokensRepo user_email_verification_token_repository.Repository
+	legalDocumentAcceptancesRepo    user_legal_document_acceptance_repository.Repository
+	impersonationSessionsRepo       impersonation_session_repository.Repository
+	organizationsRepo               organization_repository.Repository
+	billingAccountsRepo             organization_billing_account_repository.Repository
+	organizationMembersRepo         organization_member_repository.Repository
+	invitationsRepo                 invitation_repository.Repository
 	sessionCache                    *authz.SessionCache
 	accessTokenSecret               string
 	appURL                          string
@@ -152,7 +152,7 @@ func (s *service) AuthenticateWithPassword(ctx context.Context, req *Authenticat
 
 	emailLower := strings.ToLower(req.Email)
 
-	user, err := s.usersRepo.GetUserByEmail(ctx, emailLower)
+	user, err := s.usersRepo.GetByEmail(ctx, emailLower)
 	if err != nil {
 		if platform_repository.IsNotFound(err) {
 			return nil, chi_error.NewNotFoundError(errors.New("invalid credentials"), "PasswordMismatch", nil)
@@ -201,7 +201,7 @@ func (s *service) ForgotPassword(ctx context.Context, req *ForgotPasswordRequest
 
 	emailLower := strings.ToLower(req.Email)
 
-	user, err := s.usersRepo.GetUserByEmail(ctx, emailLower)
+	user, err := s.usersRepo.GetByEmail(ctx, emailLower)
 	if err != nil {
 		if platform_repository.IsNotFound(err) {
 			return nil
@@ -220,7 +220,7 @@ func (s *service) ForgotPassword(ctx context.Context, req *ForgotPasswordRequest
 	}
 
 	now := s.now()
-	if err := s.userPasswordResetTokensRepo.CreatePasswordResetToken(ctx, &models.UserPasswordResetToken{
+	if err := s.userPasswordResetTokensRepo.Create(ctx, &models.UserPasswordResetToken{
 		ModelBase: chi_types.ModelBase{
 			ID: resetTokenID,
 		},
@@ -239,7 +239,7 @@ func (s *service) Logout(ctx context.Context, req *LogoutRequest, access *chi_ty
 		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	refreshToken, err := s.userRefreshTokensRepo.GetRefreshTokenByHash(ctx, s.hashToken(req.RefreshToken))
+	refreshToken, err := s.userRefreshTokensRepo.GetByHash(ctx, s.hashToken(req.RefreshToken))
 	if err != nil {
 		if platform_repository.IsNotFound(err) {
 			return chi_error.NewUnauthorizedError(errors.New("invalid refresh token"), "InvalidToken", nil)
@@ -259,11 +259,11 @@ func (s *service) Logout(ctx context.Context, req *LogoutRequest, access *chi_ty
 	}
 
 	if err := s.runInTx(ctx, func(tx chi_repository.Tx) error {
-		if err := s.userRefreshTokensRepo.WithTx(tx).RevokeRefreshTokenByHash(ctx, refreshToken.TokenHash); err != nil {
+		if err := s.userRefreshTokensRepo.WithTx(tx).RevokeByHash(ctx, refreshToken.TokenHash); err != nil {
 			return err
 		}
 		if refreshToken.ImpersonatedBy.Valid {
-			if err := s.impersonationSessionsRepo.WithTx(tx).EndSessionByRefreshTokenID(
+			if err := s.impersonationSessionsRepo.WithTx(tx).EndByRefreshTokenID(
 				ctx, refreshToken.ID, s.now(), constants.IMPERSONATION_END_REASON_LOGOUT,
 			); err != nil && !platform_repository.IsNotFound(err) {
 				return err
@@ -290,7 +290,7 @@ func (s *service) RefreshAccessToken(ctx context.Context, req *RefreshAccessToke
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	refreshToken, err := s.userRefreshTokensRepo.GetRefreshTokenByHash(ctx, s.hashToken(req.RefreshToken))
+	refreshToken, err := s.userRefreshTokensRepo.GetByHash(ctx, s.hashToken(req.RefreshToken))
 	if err != nil {
 		if platform_repository.IsNotFound(err) {
 			return nil, chi_error.NewUnauthorizedError(errors.New("invalid refresh token"), "InvalidToken", nil)
@@ -298,7 +298,7 @@ func (s *service) RefreshAccessToken(ctx context.Context, req *RefreshAccessToke
 		return nil, err
 	}
 
-	user, err := s.usersRepo.GetUserByID(ctx, refreshToken.UserID.String())
+	user, err := s.usersRepo.GetByID(ctx, refreshToken.UserID.String())
 	if err != nil {
 		if platform_repository.IsNotFound(err) {
 			return nil, chi_error.NewUnauthorizedError(errors.New("invalid refresh token"), "InvalidToken", nil)
@@ -320,7 +320,7 @@ func (s *service) RefreshAccessToken(ctx context.Context, req *RefreshAccessToke
 	var impersonatedBy, impersonatedByEmail string
 	if refreshToken.ImpersonatedBy.Valid {
 		impersonatedBy = refreshToken.ImpersonatedBy.UUID.String()
-		impersonator, err := s.usersRepo.GetUserByID(ctx, impersonatedBy)
+		impersonator, err := s.usersRepo.GetByID(ctx, impersonatedBy)
 		if err != nil {
 			if platform_repository.IsNotFound(err) {
 				return nil, chi_error.NewUnauthorizedError(errors.New("invalid refresh token"), "InvalidToken", nil)
@@ -347,7 +347,7 @@ func (s *service) ResetPassword(ctx context.Context, req *ResetPasswordRequest) 
 		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	resetToken, err := s.userPasswordResetTokensRepo.GetPasswordResetTokenByHash(ctx, s.hashToken(req.Token))
+	resetToken, err := s.userPasswordResetTokensRepo.GetByHash(ctx, s.hashToken(req.Token))
 	if err != nil {
 		if platform_repository.IsNotFound(err) {
 			return chi_error.NewUnauthorizedError(errors.New("invalid password reset token"), "InvalidPasswordResetToken", nil)
@@ -355,7 +355,7 @@ func (s *service) ResetPassword(ctx context.Context, req *ResetPasswordRequest) 
 		return err
 	}
 
-	user, err := s.usersRepo.GetUserByID(ctx, resetToken.UserID.String())
+	user, err := s.usersRepo.GetByID(ctx, resetToken.UserID.String())
 	if err != nil {
 		return err
 	}
@@ -375,13 +375,13 @@ func (s *service) ResetPassword(ctx context.Context, req *ResetPasswordRequest) 
 	user.Password = hashedPassword
 
 	if err := s.runInTx(ctx, func(tx chi_repository.Tx) error {
-		if err := s.userPasswordResetTokensRepo.WithTx(tx).MarkPasswordResetTokenAsUsed(ctx, resetToken.ID.String()); err != nil {
+		if err := s.userPasswordResetTokensRepo.WithTx(tx).MarkAsUsed(ctx, resetToken.ID.String()); err != nil {
 			return err
 		}
-		if err := s.usersRepo.WithTx(tx).UpdateUser(ctx, user); err != nil {
+		if err := s.usersRepo.WithTx(tx).Update(ctx, user); err != nil {
 			return err
 		}
-		return s.userRefreshTokensRepo.WithTx(tx).RevokeAllRefreshTokensByUserID(ctx, user.ID.String(), nil)
+		return s.userRefreshTokensRepo.WithTx(tx).RevokeAllByUserID(ctx, user.ID.String(), nil)
 	}); err != nil {
 		return err
 	}
@@ -396,7 +396,7 @@ func (s *service) SignUp(ctx context.Context, req *SignUpRequest) (*SignUpRespon
 
 	emailLower := strings.ToLower(req.Email)
 
-	_, err := s.usersRepo.GetUserByEmail(ctx, emailLower)
+	_, err := s.usersRepo.GetByEmail(ctx, emailLower)
 	if err == nil {
 		return nil, chi_error.NewConflictError(errors.New("email already in use"), "EmailAlreadyInUse", nil)
 	}
@@ -454,7 +454,7 @@ func (s *service) SignUp(ctx context.Context, req *SignUpRequest) (*SignUpRespon
 		return nil, err
 	}
 
-	if err := s.userEmailVerificationTokensRepo.CreateEmailVerificationToken(ctx, &models.UserEmailVerificationToken{
+	if err := s.userEmailVerificationTokensRepo.Create(ctx, &models.UserEmailVerificationToken{
 		ModelBase: chi_types.ModelBase{
 			ID: verificationTokenID,
 		},
@@ -480,7 +480,7 @@ func (s *service) VerifyEmail(ctx context.Context, req *VerifyEmailRequest) erro
 		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	verificationToken, err := s.userEmailVerificationTokensRepo.GetEmailVerificationTokenByHash(ctx, s.hashToken(req.Token))
+	verificationToken, err := s.userEmailVerificationTokensRepo.GetByHash(ctx, s.hashToken(req.Token))
 	if err != nil {
 		if platform_repository.IsNotFound(err) {
 			return chi_error.NewUnauthorizedError(errors.New("invalid verification token"), "InvalidVerificationToken", nil)
@@ -488,7 +488,7 @@ func (s *service) VerifyEmail(ctx context.Context, req *VerifyEmailRequest) erro
 		return err
 	}
 
-	user, err := s.usersRepo.GetUserByID(ctx, verificationToken.UserID.String())
+	user, err := s.usersRepo.GetByID(ctx, verificationToken.UserID.String())
 	if err != nil {
 		return err
 	}
@@ -504,10 +504,10 @@ func (s *service) VerifyEmail(ctx context.Context, req *VerifyEmailRequest) erro
 	user.EmailVerifiedAt = &verifiedAt
 
 	return s.runInTx(ctx, func(tx chi_repository.Tx) error {
-		if err := s.userEmailVerificationTokensRepo.WithTx(tx).MarkEmailVerificationTokenAsUsed(ctx, verificationToken.ID.String()); err != nil {
+		if err := s.userEmailVerificationTokensRepo.WithTx(tx).MarkAsUsed(ctx, verificationToken.ID.String()); err != nil {
 			return err
 		}
-		return s.usersRepo.WithTx(tx).UpdateUser(ctx, user)
+		return s.usersRepo.WithTx(tx).Update(ctx, user)
 	})
 }
 
@@ -520,7 +520,7 @@ func (s *service) Impersonate(ctx context.Context, req *ImpersonateRequest, acce
 		return nil, err
 	}
 
-	user, err := s.usersRepo.GetUserByID(ctx, req.UserID)
+	user, err := s.usersRepo.GetByID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -571,7 +571,7 @@ func (s *service) issueAuthTokens(
 
 	var sessionID uuid.UUID
 	if err := s.runInTx(ctx, func(tx chi_repository.Tx) error {
-		if err := s.userRefreshTokensRepo.WithTx(tx).CreateRefreshToken(ctx, tokenModel); err != nil {
+		if err := s.userRefreshTokensRepo.WithTx(tx).Create(ctx, tokenModel); err != nil {
 			return err
 		}
 		if impersonatedBy == "" {
@@ -587,7 +587,7 @@ func (s *service) issueAuthTokens(
 		if parseErr != nil {
 			return chi_error.NewInternalServerError(parseErr, "InternalServerError", nil)
 		}
-		return s.impersonationSessionsRepo.WithTx(tx).CreateSession(ctx, &models.ImpersonationSession{
+		return s.impersonationSessionsRepo.WithTx(tx).Create(ctx, &models.ImpersonationSession{
 			ID:              sessionID,
 			AdminID:         adminID,
 			AdminEmail:      impersonatedByEmail,
@@ -642,13 +642,13 @@ func (s *service) cacheUserSession(ctx context.Context, userID, impersonatedBy, 
 }
 
 func (s *service) generateAccessToken(ctx context.Context, user *models.User, impersonatedBy, impersonatedByEmail string) (string, error) {
-	orgRoles, err := s.organizationMembersRepo.ListByUserIDWithRole(ctx, user.ID.String())
+	orgRoles, err := s.organizationMembersRepo.ListByUserID(ctx, user.ID.String())
 	if err != nil {
 		return "", err
 	}
 
 	isAdmin := false
-	_, err = s.adminAccessRepo.GetAdminAccessByUserID(ctx, user.ID.String())
+	_, err = s.adminAccessRepo.GetByUserID(ctx, user.ID.String())
 	if err != nil {
 		if !platform_repository.IsNotFound(err) {
 			return "", err
@@ -691,12 +691,12 @@ func (s *service) resolveOrCreateGoogleUser(
 	emailLower, googleID string,
 	now time.Time,
 ) (*models.User, error) {
-	identity, err := s.userIdentitiesRepo.GetUserIdentityByProviderAndProviderUserID(ctx, constants.USER_IDENTITY_PROVIDER_GOOGLE, googleID)
+	identity, err := s.userIdentitiesRepo.GetByProviderAndProviderUserID(ctx, constants.USER_IDENTITY_PROVIDER_GOOGLE, googleID)
 	if err != nil && !platform_repository.IsNotFound(err) {
 		return nil, err
 	}
 	if identity != nil {
-		user, err := s.usersRepo.GetUserByID(ctx, identity.UserID.String())
+		user, err := s.usersRepo.GetByID(ctx, identity.UserID.String())
 		if err != nil {
 			return nil, err
 		}
@@ -708,7 +708,7 @@ func (s *service) resolveOrCreateGoogleUser(
 		return user, nil
 	}
 
-	existingUser, err := s.usersRepo.GetUserByEmail(ctx, emailLower)
+	existingUser, err := s.usersRepo.GetByEmail(ctx, emailLower)
 	if err != nil && !platform_repository.IsNotFound(err) {
 		return nil, err
 	}
@@ -770,7 +770,7 @@ func (s *service) linkGoogleIdentity(ctx context.Context, user *models.User, goo
 		user.EmailVerifiedAt = &now
 	}
 	return s.runInTx(ctx, func(tx chi_repository.Tx) error {
-		if err := s.usersRepo.WithTx(tx).UpdateUser(ctx, user); err != nil {
+		if err := s.usersRepo.WithTx(tx).Update(ctx, user); err != nil {
 			return err
 		}
 		return s.createGoogleIdentity(ctx, tx, user.ID, googleID)
@@ -786,7 +786,7 @@ func (s *service) createGoogleIdentity(ctx context.Context, tx chi_repository.Tx
 	if tx != nil {
 		repo = s.userIdentitiesRepo.WithTx(tx)
 	}
-	return repo.CreateUserIdentity(ctx, &models.UserIdentity{
+	return repo.Create(ctx, &models.UserIdentity{
 		ModelBase: chi_types.ModelBase{
 			ID: identityID,
 		},
@@ -798,7 +798,7 @@ func (s *service) createGoogleIdentity(ctx context.Context, tx chi_repository.Tx
 
 func (s *service) createUserWithLegalAcceptances(ctx context.Context, user *models.User, termsVersion, privacyPolicyVersion string) error {
 	return s.runInTx(ctx, func(tx chi_repository.Tx) error {
-		if err := s.usersRepo.WithTx(tx).CreateUser(ctx, user); err != nil {
+		if err := s.usersRepo.WithTx(tx).Create(ctx, user); err != nil {
 			return err
 		}
 		return s.createLegalDocumentAcceptances(ctx, s.legalDocumentAcceptancesRepo.WithTx(tx), user.ID, termsVersion, privacyPolicyVersion)
@@ -807,7 +807,7 @@ func (s *service) createUserWithLegalAcceptances(ctx context.Context, user *mode
 
 func (s *service) createUserWithLegalAcceptancesAndGoogleIdentity(ctx context.Context, user *models.User, googleID, termsVersion, privacyPolicyVersion string) error {
 	return s.runInTx(ctx, func(tx chi_repository.Tx) error {
-		if err := s.usersRepo.WithTx(tx).CreateUser(ctx, user); err != nil {
+		if err := s.usersRepo.WithTx(tx).Create(ctx, user); err != nil {
 			return err
 		}
 		if err := s.createLegalDocumentAcceptances(ctx, s.legalDocumentAcceptancesRepo.WithTx(tx), user.ID, termsVersion, privacyPolicyVersion); err != nil {
@@ -846,7 +846,7 @@ func (s *service) acceptInvitationForUser(ctx context.Context, invitationToken, 
 }
 
 func (s *service) validateInvitationAcceptance(ctx context.Context, invitationToken, emailLower string) (*models.Invitation, error) {
-	invitation, err := s.invitationsRepo.GetInvitationByTokenHash(ctx, s.hashToken(invitationToken))
+	invitation, err := s.invitationsRepo.GetByTokenHash(ctx, s.hashToken(invitationToken))
 	if err != nil {
 		if platform_repository.IsNotFound(err) {
 			return nil, chi_error.NewUnprocessableEntityError(errors.New("invalid invitation token"), "InvalidInvitationToken", nil)
@@ -867,11 +867,11 @@ func (s *service) validateInvitationAcceptance(ctx context.Context, invitationTo
 		return nil, chi_error.NewForbiddenError(errors.New("invitation email mismatch"), "InvitationEmailMismatch", nil)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, invitation.OrganizationID.String()); err != nil {
+	if _, err := s.organizationsRepo.GetByID(ctx, invitation.OrganizationID.String()); err != nil {
 		return nil, err
 	}
 
-	billing, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, invitation.OrganizationID.String())
+	billing, err := s.billingAccountsRepo.GetByOrganizationID(ctx, invitation.OrganizationID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -908,11 +908,11 @@ func (s *service) persistUserAndInvitationAcceptance(ctx context.Context, invita
 		orgRepo := s.organizationsRepo.WithTx(tx)
 		membersRepo := s.organizationMembersRepo.WithTx(tx)
 
-		if _, orgErr := orgRepo.GetOrganizationByID(ctx, invitation.OrganizationID.String()); orgErr != nil {
+		if _, orgErr := orgRepo.GetByID(ctx, invitation.OrganizationID.String()); orgErr != nil {
 			return orgErr
 		}
 
-		billing, billingErr := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, invitation.OrganizationID.String())
+		billing, billingErr := s.billingAccountsRepo.GetByOrganizationID(ctx, invitation.OrganizationID.String())
 		if billingErr != nil {
 			return billingErr
 		}
@@ -926,7 +926,7 @@ func (s *service) persistUserAndInvitationAcceptance(ctx context.Context, invita
 		}
 
 		if createUser {
-			if err := s.usersRepo.WithTx(tx).CreateUser(ctx, user); err != nil {
+			if err := s.usersRepo.WithTx(tx).Create(ctx, user); err != nil {
 				return err
 			}
 		}
@@ -935,11 +935,11 @@ func (s *service) persistUserAndInvitationAcceptance(ctx context.Context, invita
 		}
 
 		invitation.AcceptedAt = &acceptedAt
-		if err := s.invitationsRepo.WithTx(tx).UpdateInvitation(ctx, invitation); err != nil {
+		if err := s.invitationsRepo.WithTx(tx).Update(ctx, invitation); err != nil {
 			return err
 		}
 
-		if err := membersRepo.CreateOrganizationMember(ctx, member); err != nil {
+		if err := membersRepo.Create(ctx, member); err != nil {
 			if e, ok := chi_error.AsError(err); ok && e.StatusCode == http.StatusConflict {
 				return chi_error.NewConflictError(errors.New("user is already a member"), "UserAlreadyMember", nil)
 			}

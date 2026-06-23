@@ -48,27 +48,22 @@ type Dependencies struct {
 }
 
 type Service interface {
+	AdminCreateOrganization(ctx context.Context, req *AdminCreateOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error)
 	CreateOrganization(ctx context.Context, req *CreateOrganizationRequest, access *chi_types.AccessInfo) (*CreateOrganizationResponse, error)
-
 	UpdateOrganization(ctx context.Context, req *UpdateOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error)
 	UpdateOrganizationSubscription(ctx context.Context, req *UpdateOrganizationSubscriptionRequest, access *chi_types.AccessInfo) (*models.OrganizationBillingAccount, error)
-	UpdateOrganizationMember(ctx context.Context, req *UpdateOrganizationMemberRequest, access *chi_types.AccessInfo) (*models.OrganizationMemberWithUser, error)
-
 	ArchiveOrganization(ctx context.Context, req *ArchiveOrganizationRequest, access *chi_types.AccessInfo) error
 	RestoreOrganization(ctx context.Context, req *RestoreOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error)
-
-	DeleteOrganizationMember(ctx context.Context, req *DeleteOrganizationMemberRequest, access *chi_types.AccessInfo) error
+	CleanupArchivedOrganizations(ctx context.Context) error
 
 	GetOrganization(ctx context.Context, req *GetOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error)
 	GetArchivedOrganization(ctx context.Context, req *GetOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error)
-
 	ListOrganizations(ctx context.Context, req *ListOrganizationsRequest, access *chi_types.AccessInfo) (*ListOrganizationsResponse, error)
+
+	UpdateOrganizationMember(ctx context.Context, req *UpdateOrganizationMemberRequest, access *chi_types.AccessInfo) (*models.OrganizationMemberWithUser, error)
+	DeleteOrganizationMember(ctx context.Context, req *DeleteOrganizationMemberRequest, access *chi_types.AccessInfo) error
 	ListOrganizationMembers(ctx context.Context, req *ListOrganizationMembersRequest, access *chi_types.AccessInfo) (*[]models.OrganizationMemberWithUser, error)
 	ListOrganizationRolesForUser(ctx context.Context, req *ListOrganizationRolesForUserRequest, access *chi_types.AccessInfo) (*[]models.OrganizationMemberWithOrganizationAndRole, error)
-
-	AdminCreateOrganization(ctx context.Context, req *AdminCreateOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error)
-
-	CleanupArchivedOrganizations(ctx context.Context) error
 }
 
 type service struct {
@@ -78,11 +73,11 @@ type service struct {
 	logger                  chi_logger.Logger
 	runInTx                 repositories.TxRunner
 	authorizer              *authz.Authorizer
-	organizationsRepo       organization_repository.OrganizationsRepository
-	organizationMembersRepo organization_member_repository.OrganizationMembersRepository
-	billingAccountsRepo     billing_account_repository.OrganizationBillingAccountsRepository
-	rolesRepo               role_repository.RolesRepository
-	usersRepo               user_repository.UsersRepository
+	organizationsRepo       organization_repository.Repository
+	organizationMembersRepo organization_member_repository.Repository
+	billingAccountsRepo     billing_account_repository.Repository
+	rolesRepo               role_repository.Repository
+	usersRepo               user_repository.Repository
 	sessionCache            *authz.SessionCache
 	auditService            audit_service.Service
 	billingService          billing_service.Service
@@ -155,16 +150,7 @@ func (s *service) CreateOrganization(ctx context.Context, req *CreateOrganizatio
 		Timezone: locationData.Timezone,
 	}
 
-	billingAccountID, err := s.generateID()
-	if err != nil {
-		return nil, err
-	}
-
 	billingAccount := &models.OrganizationBillingAccount{
-		ModelBase: chi_types.ModelBase{
-			ID:        billingAccountID,
-			CreatedAt: now,
-		},
 		OrganizationID:              orgID,
 		BillingEmail:                req.BillingEmail,
 		Provider:                    constants.BILLING_PROVIDER_PADDLE,
@@ -227,20 +213,20 @@ func (s *service) CreateOrganization(ctx context.Context, req *CreateOrganizatio
 
 	if txErr := s.runInTx(ctx, func(tx chi_repository.Tx) error {
 		orgRepo := s.organizationsRepo.WithTx(tx)
-		if err := orgRepo.CreateOrganization(ctx, org); err != nil {
+		if err := orgRepo.Create(ctx, org); err != nil {
 			return err
 		}
 
-		if err := s.billingAccountsRepo.WithTx(tx).CreateOrganizationBillingAccount(ctx, billingAccount); err != nil {
+		if err := s.billingAccountsRepo.WithTx(tx).Create(ctx, billingAccount); err != nil {
 			return err
 		}
 
 		rolesRepo := s.rolesRepo.WithTx(tx)
-		if err := rolesRepo.CreateRoles(ctx, &roles); err != nil {
+		if err := rolesRepo.CreateMany(ctx, &roles); err != nil {
 			return err
 		}
 
-		return s.organizationMembersRepo.WithTx(tx).CreateOrganizationMember(ctx, &membership)
+		return s.organizationMembersRepo.WithTx(tx).Create(ctx, &membership)
 	}); txErr != nil {
 		s.rollbackPaddleCustomer(ctx, orgID.String(), billingAccount)
 		return nil, txErr
@@ -268,12 +254,12 @@ func (s *service) UpdateOrganization(ctx context.Context, req *UpdateOrganizatio
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	org, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID)
+	org, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 
-	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billingAccount, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +301,7 @@ func (s *service) UpdateOrganization(ctx context.Context, req *UpdateOrganizatio
 	}
 
 	if txErr := s.runInTx(ctx, func(tx chi_repository.Tx) error {
-		if err := s.organizationsRepo.WithTx(tx).UpdateOrganization(ctx, &updatedOrg); err != nil {
+		if err := s.organizationsRepo.WithTx(tx).Update(ctx, &updatedOrg); err != nil {
 			return err
 		}
 		return nil
@@ -356,7 +342,7 @@ func (s *service) UpdateOrganizationSubscription(ctx context.Context, req *Updat
 		return nil, err
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
+	if _, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID); err != nil {
 		return nil, err
 	}
 
@@ -378,7 +364,7 @@ func (s *service) UpdateOrganizationSubscription(ctx context.Context, req *Updat
 		}
 	}
 
-	account, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	account, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +382,7 @@ func (s *service) UpdateOrganizationSubscription(ctx context.Context, req *Updat
 	updatedAccount.SubscriptionExpiresAt = &expiresAt
 
 	if txErr := s.runInTx(ctx, func(tx chi_repository.Tx) error {
-		return s.billingAccountsRepo.WithTx(tx).UpdateOrganizationBillingAccount(ctx, &updatedAccount)
+		return s.billingAccountsRepo.WithTx(tx).Update(ctx, &updatedAccount)
 	}); txErr != nil {
 		return nil, txErr
 	}
@@ -409,11 +395,11 @@ func (s *service) UpdateOrganizationMember(ctx context.Context, req *UpdateOrgan
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
+	if _, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID); err != nil {
 		return nil, err
 	}
 
-	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billingAccount, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -422,7 +408,7 @@ func (s *service) UpdateOrganizationMember(ctx context.Context, req *UpdateOrgan
 		return nil, err
 	}
 
-	member, err := s.organizationMembersRepo.GetOrganizationMemberByMembershipID(ctx, req.OrganizationID, req.MemberID)
+	member, err := s.organizationMembersRepo.GetByMemberID(ctx, req.OrganizationID, req.MemberID)
 	if err != nil {
 		return nil, err
 	}
@@ -431,18 +417,18 @@ func (s *service) UpdateOrganizationMember(ctx context.Context, req *UpdateOrgan
 		return nil, chi_error.NewForbiddenError(errors.New("cannot update own membership"), "UserCannotUpdateOwnMember", nil)
 	}
 
-	currentRole, err := s.rolesRepo.GetRoleByID(ctx, req.OrganizationID, member.RoleID.String())
+	currentRole, err := s.rolesRepo.GetByID(ctx, req.OrganizationID, member.RoleID.String())
 	if err != nil {
 		return nil, err
 	}
 
-	newRole, err := s.rolesRepo.GetRoleByID(ctx, req.OrganizationID, req.RoleID)
+	newRole, err := s.rolesRepo.GetByID(ctx, req.OrganizationID, req.RoleID)
 	if err != nil {
 		return nil, err
 	}
 
 	member.RoleID = newRole.ID
-	if err := s.organizationMembersRepo.UpdateOrganizationMember(ctx, member); err != nil {
+	if err := s.organizationMembersRepo.Update(ctx, member); err != nil {
 		return nil, err
 	}
 
@@ -450,7 +436,7 @@ func (s *service) UpdateOrganizationMember(ctx context.Context, req *UpdateOrgan
 		s.logger.WithContext(ctx).Error("failed to invalidate session", "error", err, "organizationId", req.OrganizationID)
 	}
 
-	memberWithUser, err := s.organizationMembersRepo.GetOrganizationMemberByMembershipIDWithUser(ctx, req.OrganizationID, req.MemberID)
+	memberWithUser, err := s.organizationMembersRepo.GetByMemberIDWithUser(ctx, req.OrganizationID, req.MemberID)
 	if err != nil {
 		return nil, err
 	}
@@ -471,7 +457,7 @@ func (s *service) ArchiveOrganization(ctx context.Context, req *ArchiveOrganizat
 		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	org, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID)
+	org, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -480,11 +466,11 @@ func (s *service) ArchiveOrganization(ctx context.Context, req *ArchiveOrganizat
 		return err
 	}
 
-	if err := s.organizationsRepo.ArchiveOrganization(ctx, org); err != nil {
+	if err := s.organizationsRepo.Archive(ctx, org); err != nil {
 		return err
 	}
 
-	billingAccount, billingErr := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billingAccount, billingErr := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if billingErr == nil && billingAccount.ProviderSubscriptionID != "" {
 		if cancelErr := s.billingService.CancelSubscription(ctx, billingAccount.ProviderSubscriptionID); cancelErr != nil {
 			s.logger.WithContext(ctx).Error("failed to cancel paddle subscription on archive", "error", cancelErr, "organizationId", org.ID.String())
@@ -505,7 +491,7 @@ func (s *service) RestoreOrganization(ctx context.Context, req *RestoreOrganizat
 		return nil, err
 	}
 
-	org, err := s.organizationsRepo.GetOrganizationByIDIncludeArchived(ctx, req.OrganizationID)
+	org, err := s.organizationsRepo.GetByIDIncludeArchived(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -513,11 +499,11 @@ func (s *service) RestoreOrganization(ctx context.Context, req *RestoreOrganizat
 		return nil, chi_error.NewNotFoundError(errors.New("organization is not archived"), "NotFound", nil)
 	}
 
-	if err := s.organizationsRepo.RestoreOrganization(ctx, req.OrganizationID); err != nil {
+	if err := s.organizationsRepo.Restore(ctx, req.OrganizationID); err != nil {
 		return nil, err
 	}
 
-	restored, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID)
+	restored, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -532,11 +518,11 @@ func (s *service) DeleteOrganizationMember(ctx context.Context, req *DeleteOrgan
 		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
+	if _, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID); err != nil {
 		return err
 	}
 
-	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billingAccount, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -545,7 +531,7 @@ func (s *service) DeleteOrganizationMember(ctx context.Context, req *DeleteOrgan
 		return err
 	}
 
-	member, err := s.organizationMembersRepo.GetOrganizationMemberByMembershipID(ctx, req.OrganizationID, req.MemberID)
+	member, err := s.organizationMembersRepo.GetByMemberID(ctx, req.OrganizationID, req.MemberID)
 	if err != nil {
 		return err
 	}
@@ -554,17 +540,17 @@ func (s *service) DeleteOrganizationMember(ctx context.Context, req *DeleteOrgan
 		return chi_error.NewForbiddenError(errors.New("cannot remove own membership"), "UserCannotRemoveOwnMember", nil)
 	}
 
-	user, err := s.usersRepo.GetUserByID(ctx, member.UserID.String())
+	user, err := s.usersRepo.GetByID(ctx, member.UserID.String())
 	if err != nil {
 		return err
 	}
 
-	role, err := s.rolesRepo.GetRoleByID(ctx, req.OrganizationID, member.RoleID.String())
+	role, err := s.rolesRepo.GetByID(ctx, req.OrganizationID, member.RoleID.String())
 	if err != nil {
 		return err
 	}
 
-	if err := s.organizationMembersRepo.DeleteOrganizationMemberByMembershipID(ctx, req.OrganizationID, req.MemberID); err != nil {
+	if err := s.organizationMembersRepo.DeleteByMemberID(ctx, req.OrganizationID, req.MemberID); err != nil {
 		return err
 	}
 
@@ -590,7 +576,7 @@ func (s *service) GetOrganization(ctx context.Context, req *GetOrganizationReque
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	org, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID)
+	org, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -610,7 +596,7 @@ func (s *service) GetArchivedOrganization(ctx context.Context, req *GetOrganizat
 	if err := s.authorizer.CheckPlatformAdmin(access); err != nil {
 		return nil, err
 	}
-	return s.organizationsRepo.GetOrganizationByIDIncludeArchived(ctx, req.OrganizationID)
+	return s.organizationsRepo.GetByIDIncludeArchived(ctx, req.OrganizationID)
 }
 
 func (s *service) ListOrganizations(ctx context.Context, req *ListOrganizationsRequest, access *chi_types.AccessInfo) (*ListOrganizationsResponse, error) {
@@ -627,7 +613,7 @@ func (s *service) ListOrganizations(ctx context.Context, req *ListOrganizationsR
 		filter = chi_archive.ArchiveFilterActive
 	}
 
-	orgs, err := s.organizationsRepo.SearchOrganizations(ctx, req.SearchPhrase, filter, req.Limit+1, req.Offset)
+	orgs, err := s.organizationsRepo.Search(ctx, req.SearchPhrase, filter, req.Limit+1, req.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -649,7 +635,7 @@ func (s *service) ListOrganizationMembers(ctx context.Context, req *ListOrganiza
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
+	if _, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID); err != nil {
 		return nil, err
 	}
 
@@ -669,7 +655,7 @@ func (s *service) ListOrganizationRolesForUser(ctx context.Context, req *ListOrg
 		return nil, err
 	}
 
-	return s.organizationMembersRepo.ListByUserIDWithRole(ctx, req.UserID)
+	return s.organizationMembersRepo.ListByUserID(ctx, req.UserID)
 }
 
 func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateOrganizationRequest, access *chi_types.AccessInfo) (*models.Organization, error) {
@@ -708,16 +694,7 @@ func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateO
 		Timezone: locationData.Timezone,
 	}
 
-	billingAccountID, err := s.generateID()
-	if err != nil {
-		return nil, err
-	}
-
 	billingAccount := &models.OrganizationBillingAccount{
-		ModelBase: chi_types.ModelBase{
-			ID:        billingAccountID,
-			CreatedAt: now,
-		},
 		OrganizationID:              orgID,
 		BillingEmail:                req.BillingEmail,
 		Provider:                    constants.BILLING_PROVIDER_CUSTOM,
@@ -761,7 +738,7 @@ func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateO
 	}
 
 	emailLower := strings.ToLower(strings.TrimSpace(req.OwnerEmail))
-	existingUser, userErr := s.usersRepo.GetUserByEmail(ctx, emailLower)
+	existingUser, userErr := s.usersRepo.GetByEmail(ctx, emailLower)
 	if userErr != nil {
 		if apiErr, ok := userErr.(*chi_error.Error); !ok || apiErr.StatusCode != http.StatusNotFound {
 			s.rollbackPaddleCustomer(ctx, orgID.String(), billingAccount)
@@ -790,18 +767,18 @@ func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateO
 
 	if txErr := s.runInTx(ctx, func(tx chi_repository.Tx) error {
 		orgRepo := s.organizationsRepo.WithTx(tx)
-		if err := orgRepo.CreateOrganization(ctx, org); err != nil {
+		if err := orgRepo.Create(ctx, org); err != nil {
 			return err
 		}
-		if err := s.billingAccountsRepo.WithTx(tx).CreateOrganizationBillingAccount(ctx, billingAccount); err != nil {
+		if err := s.billingAccountsRepo.WithTx(tx).Create(ctx, billingAccount); err != nil {
 			return err
 		}
 		rolesRepo := s.rolesRepo.WithTx(tx)
-		if err := rolesRepo.CreateRoles(ctx, &roles); err != nil {
+		if err := rolesRepo.CreateMany(ctx, &roles); err != nil {
 			return err
 		}
 		if membership != nil {
-			return s.organizationMembersRepo.WithTx(tx).CreateOrganizationMember(ctx, membership)
+			return s.organizationMembersRepo.WithTx(tx).Create(ctx, membership)
 		}
 		return nil
 	}); txErr != nil {
@@ -810,7 +787,7 @@ func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateO
 	}
 
 	if existingUser == nil {
-		_, invErr := s.invitationsService.CreateInvitation(ctx, &invitation_service.CreateInvitationRequest{
+		_, invErr := s.invitationsService.Create(ctx, &invitation_service.CreateRequest{
 			Email:          req.OwnerEmail,
 			OrganizationID: org.ID.String(),
 			RoleID:         ownerRoleID.String(),
@@ -819,7 +796,7 @@ func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateO
 			Language:       req.Language,
 		}, access)
 		if invErr != nil {
-			if archiveErr := s.organizationsRepo.ArchiveOrganization(ctx, org); archiveErr != nil {
+			if archiveErr := s.organizationsRepo.Archive(ctx, org); archiveErr != nil {
 				s.logger.WithContext(ctx).Error("failed to archive org after owner invitation failure", "error", archiveErr, "organizationId", org.ID.String())
 			}
 			s.logger.WithContext(ctx).Error("failed to send owner invitation", "error", invErr, "organizationId", org.ID.String())
@@ -835,7 +812,7 @@ func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateO
 }
 
 func (s *service) CleanupArchivedOrganizations(ctx context.Context) error {
-	return s.organizationsRepo.CleanupArchivedOrganizations(ctx)
+	return s.organizationsRepo.CleanupArchived(ctx)
 }
 
 func (s *service) logOrganizationAudit(ctx context.Context, access *chi_types.AccessInfo, orgID, action, resourceName string, payload map[string]any) {
@@ -846,7 +823,7 @@ func (s *service) logOrganizationAudit(ctx context.Context, access *chi_types.Ac
 	}
 	changesRaw := json.RawMessage(changes)
 
-	if _, err := s.auditService.CreateAuditLog(ctx, &audit_service.CreateAuditLogRequest{
+	if _, err := s.auditService.Create(ctx, &audit_service.CreateRequest{
 		OrganizationID: orgID,
 		Action:         action,
 		ResourceType:   constants.RESOURCE_TYPE_ORGANIZATION,
@@ -859,7 +836,7 @@ func (s *service) logOrganizationAudit(ctx context.Context, access *chi_types.Ac
 }
 
 func (s *service) createMemberAudit(ctx context.Context, access *chi_types.AccessInfo, orgID, action, resourceID, resourceName string, data *json.RawMessage) {
-	if _, err := s.auditService.CreateAuditLog(ctx, &audit_service.CreateAuditLogRequest{
+	if _, err := s.auditService.Create(ctx, &audit_service.CreateRequest{
 		OrganizationID: orgID,
 		Action:         action,
 		ResourceType:   constants.RESOURCE_TYPE_MEMBER,

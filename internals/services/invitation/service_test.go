@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
+	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
 	invitation_repository "github.com/yca-software/2chi-go-api/internals/repositories/invitation"
@@ -18,7 +19,6 @@ import (
 	role_repository "github.com/yca-software/2chi-go-api/internals/repositories/role"
 	user_repository "github.com/yca-software/2chi-go-api/internals/repositories/user"
 	invitation_service "github.com/yca-software/2chi-go-api/internals/services/invitation"
-	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_repository "github.com/yca-software/2chi-go-repository"
@@ -34,12 +34,12 @@ type InvitationServiceSuite struct {
 	ctx                 context.Context
 	now                 time.Time
 	orgID               uuid.UUID
-	invitesRepo         *invitation_repository.MockInvitationsRepository
-	orgsRepo            *organization_repository.MockOrganizationsRepository
-	membersRepo         *organization_member_repository.MockOrganizationMembersRepository
-	billingAccountsRepo *billing_account_repository.MockOrganizationBillingAccountsRepository
-	usersRepo           *user_repository.MockUsersRepository
-	rolesRepo           *role_repository.MockRolesRepository
+	invitesRepo         *invitation_repository.MockRepository
+	orgsRepo            *organization_repository.MockRepository
+	membersRepo         *organization_member_repository.MockRepository
+	billingAccountsRepo *billing_account_repository.MockRepository
+	usersRepo           *user_repository.MockRepository
+	rolesRepo           *role_repository.MockRepository
 	svc                 invitation_service.Service
 }
 
@@ -51,12 +51,12 @@ func (s *InvitationServiceSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.now = time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	s.orgID = uuid.New()
-	s.invitesRepo = &invitation_repository.MockInvitationsRepository{}
-	s.orgsRepo = &organization_repository.MockOrganizationsRepository{}
-	s.membersRepo = &organization_member_repository.MockOrganizationMembersRepository{}
-	s.billingAccountsRepo = &billing_account_repository.MockOrganizationBillingAccountsRepository{}
-	s.usersRepo = &user_repository.MockUsersRepository{}
-	s.rolesRepo = &role_repository.MockRolesRepository{}
+	s.invitesRepo = &invitation_repository.MockRepository{}
+	s.orgsRepo = &organization_repository.MockRepository{}
+	s.membersRepo = &organization_member_repository.MockRepository{}
+	s.billingAccountsRepo = &billing_account_repository.MockRepository{}
+	s.usersRepo = &user_repository.MockRepository{}
+	s.rolesRepo = &role_repository.MockRepository{}
 
 	s.svc = invitation_service.New(invitation_service.Dependencies{
 		InvitationTTL: constants.INVITATION_TOKEN_TTL,
@@ -93,43 +93,40 @@ func (s *InvitationServiceSuite) organization() *models.Organization {
 func (s *InvitationServiceSuite) basicBillingAccount(seats int) *models.OrganizationBillingAccount {
 	expiresAt := s.now.Add(24 * time.Hour)
 	return &models.OrganizationBillingAccount{
-		ModelBase:                 chi_types.ModelBase{ID: s.orgID},
-		OrganizationID:            s.orgID,
-		Provider:                  constants.BILLING_PROVIDER_PADDLE,
-		SubscriptionTier:          constants.TIER_BASIC,
-		SubscriptionSeats:         seats,
-		SubscriptionExpiresAt:     &expiresAt,
+		OrganizationID:              s.orgID,
+		Provider:                    constants.BILLING_PROVIDER_PADDLE,
+		SubscriptionTier:            constants.TIER_BASIC,
+		SubscriptionSeats:           seats,
+		SubscriptionExpiresAt:       &expiresAt,
 		SubscriptionPaymentInterval: constants.PAYMENT_INTERVAL_MONTHLY,
 	}
 }
 
 func (s *InvitationServiceSuite) expectPaidOrg() {
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
+	s.orgsRepo.On("GetByID", s.ctx, s.orgID.String()).
 		Return(s.organization(), nil).Once()
 }
 
 func (s *InvitationServiceSuite) expectBasicBillingAccount() *mock.Call {
-	return s.billingAccountsRepo.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	return s.billingAccountsRepo.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(s.basicBillingAccount(10), nil)
 }
 
 func (s *InvitationServiceSuite) expectRole(roleID uuid.UUID) {
-	s.rolesRepo.On("GetRoleByID", s.ctx, s.orgID.String(), roleID.String()).
+	s.rolesRepo.On("GetByID", s.ctx, s.orgID.String(), roleID.String()).
 		Return(&models.Role{
-			ModelBase:      chi_types.ModelBase{ID: roleID},
 			OrganizationID: s.orgID,
 			Name:           "Member",
 		}, nil).Once()
 }
 
 func (s *InvitationServiceSuite) expectNoPendingInvites() {
-	s.invitesRepo.On("ListInvitationsByOrganizationID", s.ctx, s.orgID.String()).
+	s.invitesRepo.On("ListByOrganizationID", s.ctx, s.orgID.String()).
 		Return(&[]models.Invitation{}, nil).Once()
 }
 
 func (s *InvitationServiceSuite) invitation(invID uuid.UUID) *models.Invitation {
 	return &models.Invitation{
-		ModelBase:      chi_types.ModelBase{ID: invID},
 		OrganizationID: s.orgID,
 		Email:          "invitee@example.com",
 		ExpiresAt:      s.now.Add(24 * time.Hour),
@@ -149,7 +146,7 @@ func (s *InvitationServiceSuite) writeAccess() *chi_types.AccessInfo {
 }
 
 func (s *InvitationServiceSuite) TestCreateInvitation_Validation_InvalidEmail() {
-	resp, err := s.svc.CreateInvitation(s.ctx, &invitation_service.CreateInvitationRequest{
+	resp, err := s.svc.Create(s.ctx, &invitation_service.CreateRequest{
 		OrganizationID: s.orgID.String(),
 		Email:          "not-an-email",
 		RoleID:         uuid.New().String(),
@@ -172,7 +169,7 @@ func (s *InvitationServiceSuite) TestCreateInvitation_UserAlreadyMember() {
 		}}, nil).Once()
 	s.expectRole(roleID)
 	s.expectNoPendingInvites()
-	s.usersRepo.On("GetUserByEmail", s.ctx, "member@example.com").
+	s.usersRepo.On("GetByEmail", s.ctx, "member@example.com").
 		Return(&models.User{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: userID},
@@ -185,7 +182,7 @@ func (s *InvitationServiceSuite) TestCreateInvitation_UserAlreadyMember() {
 			OrganizationMember: models.OrganizationMember{UserID: userID},
 		}}, nil).Once()
 
-	resp, err := s.svc.CreateInvitation(s.ctx, &invitation_service.CreateInvitationRequest{
+	resp, err := s.svc.Create(s.ctx, &invitation_service.CreateRequest{
 		OrganizationID: s.orgID.String(),
 		Email:          "member@example.com",
 		RoleID:         roleID.String(),
@@ -207,12 +204,12 @@ func (s *InvitationServiceSuite) TestRevokeInvitation_AlreadyAccepted() {
 	s.expectBasicBillingAccount().Once()
 	inv := s.invitation(invID)
 	inv.AcceptedAt = &accepted
-	s.invitesRepo.On("GetInvitationByID", s.ctx, s.orgID.String(), invID.String()).Return(inv, nil).Once()
+	s.invitesRepo.On("GetByID", s.ctx, s.orgID.String(), invID.String()).Return(inv, nil).Once()
 
 	access := s.writeAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_MEMBERS_DELETE}
 
-	err := s.svc.RevokeInvitation(s.ctx, &invitation_service.RevokeInvitationRequest{
+	err := s.svc.Revoke(s.ctx, &invitation_service.RevokeRequest{
 		OrganizationID: s.orgID.String(),
 		InvitationID:   invID.String(),
 	}, access)
@@ -225,15 +222,15 @@ func (s *InvitationServiceSuite) TestRevokeInvitation_AlreadyAccepted() {
 func (s *InvitationServiceSuite) TestListInvitations_ForbiddenWithoutReadPermission() {
 	s.expectPaidOrg()
 
-	_, err := s.svc.ListInvitations(s.ctx, &invitation_service.ListInvitationsRequest{
+	_, err := s.svc.List(s.ctx, &invitation_service.ListRequest{
 		OrganizationID: s.orgID.String(),
 	}, s.writeAccess())
 	s.Error(err)
 }
 
 func (s *InvitationServiceSuite) TestCleanupStaleInvitations() {
-	s.invitesRepo.On("CleanupStaleInvitations", s.ctx).Return(nil).Once()
-	s.NoError(s.svc.CleanupStaleInvitations(s.ctx))
+	s.invitesRepo.On("CleanupStale", s.ctx).Return(nil).Once()
+	s.NoError(s.svc.CleanupStale(s.ctx))
 }
 
 func (s *InvitationServiceSuite) TestRevokeInvitation_Success() {
@@ -243,13 +240,13 @@ func (s *InvitationServiceSuite) TestRevokeInvitation_Success() {
 	s.expectBasicBillingAccount().Once()
 	inv := s.invitation(invID)
 	inv.ExpiresAt = expires
-	s.invitesRepo.On("GetInvitationByID", s.ctx, s.orgID.String(), invID.String()).Return(inv, nil).Once()
-	s.invitesRepo.On("UpdateInvitation", s.ctx, mock.AnythingOfType("*models.Invitation")).Return(nil).Once()
+	s.invitesRepo.On("GetByID", s.ctx, s.orgID.String(), invID.String()).Return(inv, nil).Once()
+	s.invitesRepo.On("Update", s.ctx, mock.AnythingOfType("*models.Invitation")).Return(nil).Once()
 
 	access := s.writeAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_MEMBERS_DELETE}
 
-	err := s.svc.RevokeInvitation(s.ctx, &invitation_service.RevokeInvitationRequest{
+	err := s.svc.Revoke(s.ctx, &invitation_service.RevokeRequest{
 		OrganizationID: s.orgID.String(),
 		InvitationID:   invID.String(),
 	}, access)
@@ -259,12 +256,12 @@ func (s *InvitationServiceSuite) TestRevokeInvitation_Success() {
 func (s *InvitationServiceSuite) TestListInvitations_Success() {
 	invitations := []models.Invitation{*s.invitation(uuid.New())}
 	s.expectPaidOrg()
-	s.invitesRepo.On("ListInvitationsByOrganizationID", s.ctx, s.orgID.String()).Return(&invitations, nil).Once()
+	s.invitesRepo.On("ListByOrganizationID", s.ctx, s.orgID.String()).Return(&invitations, nil).Once()
 
 	access := s.writeAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_MEMBERS_READ}
 
-	result, err := s.svc.ListInvitations(s.ctx, &invitation_service.ListInvitationsRequest{
+	result, err := s.svc.List(s.ctx, &invitation_service.ListRequest{
 		OrganizationID: s.orgID.String(),
 	}, access)
 	s.Require().NoError(err)
@@ -274,7 +271,6 @@ func (s *InvitationServiceSuite) TestListInvitations_Success() {
 func (s *InvitationServiceSuite) TestCreateInvitation_AddExistingUser_Success() {
 	roleID := uuid.New()
 	existingUserID := uuid.New()
-	memberID := uuid.New()
 	s.expectPaidOrg()
 	s.expectBasicBillingAccount().Twice()
 	s.membersRepo.On("ListByOrganizationID", s.ctx, s.orgID.String()).
@@ -282,7 +278,7 @@ func (s *InvitationServiceSuite) TestCreateInvitation_AddExistingUser_Success() 
 	s.membersRepo.On("WithTx", mock.Anything).Return(s.membersRepo)
 	s.expectRole(roleID)
 	s.expectNoPendingInvites()
-	s.usersRepo.On("GetUserByEmail", s.ctx, "existing@example.com").
+	s.usersRepo.On("GetByEmail", s.ctx, "existing@example.com").
 		Return(&models.User{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: existingUserID},
@@ -291,18 +287,17 @@ func (s *InvitationServiceSuite) TestCreateInvitation_AddExistingUser_Success() 
 		}, nil).Once()
 	s.membersRepo.On("ListByOrganizationID", s.ctx, s.orgID.String()).
 		Return(&[]models.OrganizationMemberWithUser{}, nil).Once()
-	s.membersRepo.On("CreateOrganizationMember", s.ctx, mock.AnythingOfType("*models.OrganizationMember")).Return(nil).Once()
-	s.membersRepo.On("GetOrganizationMemberByMembershipIDWithUser", s.ctx, s.orgID.String(), mock.Anything).
+	s.membersRepo.On("Create", s.ctx, mock.AnythingOfType("*models.OrganizationMember")).Return(nil).Once()
+	s.membersRepo.On("GetByMemberIDWithUser", s.ctx, s.orgID.String(), mock.Anything).
 		Return(&models.OrganizationMemberWithUser{
 			OrganizationMember: models.OrganizationMember{
-				ModelBase:      chi_types.ModelBase{ID: memberID},
 				OrganizationID: s.orgID,
 				UserID:         existingUserID,
 				RoleID:         roleID,
 			},
 		}, nil).Once()
 
-	resp, err := s.svc.CreateInvitation(s.ctx, &invitation_service.CreateInvitationRequest{
+	resp, err := s.svc.Create(s.ctx, &invitation_service.CreateRequest{
 		Email:          "existing@example.com",
 		OrganizationID: s.orgID.String(),
 		RoleID:         roleID.String(),

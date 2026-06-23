@@ -11,7 +11,7 @@ type MockService struct {
 	mock.Mock
 }
 
-func (m *MockService) Submit(ctx context.Context, req *SubmitSupportRequest, access *chi_types.AccessInfo) error {
+func (m *MockService) Submit(ctx context.Context, req *SubmitRequest, access *chi_types.AccessInfo) error {
 	args := m.Called(ctx, req, access)
 	return args.Error(0)
 }

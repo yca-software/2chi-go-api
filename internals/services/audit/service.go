@@ -32,8 +32,8 @@ type Dependencies struct {
 }
 
 type Service interface {
-	CreateAuditLog(ctx context.Context, req *CreateAuditLogRequest, access *chi_types.AccessInfo) (*models.AuditLog, error)
-	ListAuditLogsForOrganization(ctx context.Context, req *ListAuditLogsForOrganizationRequest, access *chi_types.AccessInfo) (*ListAuditLogsForOrganizationResponse, error)
+	Create(ctx context.Context, req *CreateRequest, access *chi_types.AccessInfo) (*models.AuditLog, error)
+	ListForOrganization(ctx context.Context, req *ListForOrganizationRequest, access *chi_types.AccessInfo) (*ListForOrganizationResponse, error)
 }
 
 type service struct {
@@ -42,9 +42,9 @@ type service struct {
 	validator                       chi_validator.Validator
 	logger                          chi_logger.Logger
 	authorizer                      *authz.Authorizer
-	auditLogsRepo                   audit_log_repository.AuditLogsRepository
-	organizationsRepo               organization_repository.OrganizationsRepository
-	organizationBillingAccountsRepo billing_account_repository.OrganizationBillingAccountsRepository
+	auditLogsRepo                   audit_log_repository.Repository
+	organizationsRepo               organization_repository.Repository
+	organizationBillingAccountsRepo billing_account_repository.Repository
 }
 
 func New(deps Dependencies) Service {
@@ -61,7 +61,7 @@ func New(deps Dependencies) Service {
 }
 
 // Create audit log. Only used by other services
-func (s *service) CreateAuditLog(ctx context.Context, req *CreateAuditLogRequest, access *chi_types.AccessInfo) (*models.AuditLog, error) {
+func (s *service) Create(ctx context.Context, req *CreateRequest, access *chi_types.AccessInfo) (*models.AuditLog, error) {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
@@ -106,23 +106,19 @@ func (s *service) CreateAuditLog(ctx context.Context, req *CreateAuditLogRequest
 		auditLog.ImpersonatedByEmail = access.ImpersonatedByEmail
 	}
 
-	if err := s.auditLogsRepo.CreateAuditLog(ctx, &auditLog); err != nil {
+	if err := s.auditLogsRepo.Create(ctx, &auditLog); err != nil {
 		return nil, err
 	}
 
 	return &auditLog, nil
 }
 
-func (s *service) ListAuditLogsForOrganization(ctx context.Context, req *ListAuditLogsForOrganizationRequest, access *chi_types.AccessInfo) (*ListAuditLogsForOrganizationResponse, error) {
+func (s *service) ListForOrganization(ctx context.Context, req *ListForOrganizationRequest, access *chi_types.AccessInfo) (*ListForOrganizationResponse, error) {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return nil, err
-	}
-
-	orgBillingAccount, err := s.organizationBillingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	orgBillingAccount, err := s.organizationBillingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +140,7 @@ func (s *service) ListAuditLogsForOrganization(ctx context.Context, req *ListAud
 		filters = &f
 	}
 
-	auditLogs, err := s.auditLogsRepo.ListAuditLogsByOrganizationID(ctx, req.OrganizationID, filters, req.Limit+1, req.Offset)
+	auditLogs, err := s.auditLogsRepo.ListByOrganizationID(ctx, req.OrganizationID, filters, req.Limit+1, req.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +156,7 @@ func (s *service) ListAuditLogsForOrganization(ctx context.Context, req *ListAud
 		publicItems = append(publicItems, audit.ToPublicAuditLog(&(*auditLogs)[i]))
 	}
 
-	return &ListAuditLogsForOrganizationResponse{
+	return &ListForOrganizationResponse{
 		Items:   publicItems,
 		HasNext: hasNext,
 	}, nil

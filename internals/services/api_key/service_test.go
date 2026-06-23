@@ -14,7 +14,6 @@ import (
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	api_key_repository "github.com/yca-software/2chi-go-api/internals/repositories/api_key"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
-	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
 	api_key_service "github.com/yca-software/2chi-go-api/internals/services/api_key"
 	audit_service "github.com/yca-software/2chi-go-api/internals/services/audit"
 	chi_error "github.com/yca-software/2chi-go-error"
@@ -31,9 +30,8 @@ type APIKeyServiceSuite struct {
 	ctx             context.Context
 	now             time.Time
 	orgID           uuid.UUID
-	apiKeysRepo     *api_key_repository.MockAPIKeysRepository
-	orgsRepo        *organization_repository.MockOrganizationsRepository
-	billingAccounts *billing_account_repository.MockOrganizationBillingAccountsRepository
+	apiKeysRepo     *api_key_repository.MockRepository
+	billingAccounts *billing_account_repository.MockRepository
 	auditSvc        *audit_service.MockService
 	svc             api_key_service.Service
 }
@@ -46,9 +44,8 @@ func (s *APIKeyServiceSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.now = fixedNow()
 	s.orgID = uuid.New()
-	s.apiKeysRepo = &api_key_repository.MockAPIKeysRepository{}
-	s.orgsRepo = &organization_repository.MockOrganizationsRepository{}
-	s.billingAccounts = &billing_account_repository.MockOrganizationBillingAccountsRepository{}
+	s.apiKeysRepo = &api_key_repository.MockRepository{}
+	s.billingAccounts = &billing_account_repository.MockRepository{}
 	s.auditSvc = &audit_service.MockService{}
 
 	s.svc = api_key_service.New(api_key_service.Dependencies{
@@ -61,7 +58,6 @@ func (s *APIKeyServiceSuite) SetupTest() {
 		Authorizer:    authz.NewAuthorizer(func() time.Time { return s.now }),
 		Repositories: &repositories.Repositories{
 			APIKeys:                     s.apiKeysRepo,
-			Organizations:               s.orgsRepo,
 			OrganizationBillingAccounts: s.billingAccounts,
 		},
 		AuditService: s.auditSvc,
@@ -70,9 +66,7 @@ func (s *APIKeyServiceSuite) SetupTest() {
 
 func (s *APIKeyServiceSuite) expectProOrg() {
 	expiresAt := s.now.Add(24 * time.Hour)
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
-		Return(organization(s.orgID, "Acme"), nil).Once()
-	s.billingAccounts.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccounts.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(billingAccount(s.orgID, constants.TIER_PRO, constants.BILLING_PROVIDER_PADDLE, &expiresAt), nil).Once()
 }
 
@@ -89,7 +83,7 @@ func (s *APIKeyServiceSuite) writeAccess() *chi_types.AccessInfo {
 }
 
 func (s *APIKeyServiceSuite) TestCreateAPIKey_InvalidPermission() {
-	resp, err := s.svc.CreateAPIKey(s.ctx, &api_key_service.CreateAPIKeyRequest{
+	resp, err := s.svc.Create(s.ctx, &api_key_service.CreateRequest{
 		OrganizationID: s.orgID.String(),
 		Name:           "CI",
 		Permissions:    []string{constants.PERMISSION_AUDIT_READ},
@@ -104,10 +98,10 @@ func (s *APIKeyServiceSuite) TestCreateAPIKey_InvalidPermission() {
 
 func (s *APIKeyServiceSuite) TestCreateAPIKey_Success() {
 	s.expectProOrg()
-	s.apiKeysRepo.On("CreateAPIKey", s.ctx, mock.AnythingOfType("*models.APIKey")).Return(nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.apiKeysRepo.On("Create", s.ctx, mock.AnythingOfType("*models.APIKey")).Return(nil).Once()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
-	resp, err := s.svc.CreateAPIKey(s.ctx, &api_key_service.CreateAPIKeyRequest{
+	resp, err := s.svc.Create(s.ctx, &api_key_service.CreateRequest{
 		OrganizationID: s.orgID.String(),
 		Name:           "CI",
 		Permissions:    []string{constants.PERMISSION_ORG_READ},
@@ -120,12 +114,10 @@ func (s *APIKeyServiceSuite) TestCreateAPIKey_Success() {
 }
 
 func (s *APIKeyServiceSuite) TestCreateAPIKey_FreePlanFeatureDenied() {
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
-		Return(organization(s.orgID, "Acme"), nil).Once()
-	s.billingAccounts.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccounts.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(billingAccount(s.orgID, constants.TIER_FREE, constants.BILLING_PROVIDER_PADDLE, nil), nil).Once()
 
-	resp, err := s.svc.CreateAPIKey(s.ctx, &api_key_service.CreateAPIKeyRequest{
+	resp, err := s.svc.Create(s.ctx, &api_key_service.CreateRequest{
 		OrganizationID: s.orgID.String(),
 		Name:           "CI",
 		Permissions:    []string{constants.PERMISSION_ORG_READ},
@@ -138,12 +130,12 @@ func (s *APIKeyServiceSuite) TestCreateAPIKey_FreePlanFeatureDenied() {
 func (s *APIKeyServiceSuite) TestListAPIKeys_Success() {
 	keys := []models.APIKey{*apiKey(uuid.New(), s.orgID, "CI")}
 	s.expectProOrg()
-	s.apiKeysRepo.On("ListAPIKeysByOrganizationID", s.ctx, s.orgID.String()).Return(&keys, nil).Once()
+	s.apiKeysRepo.On("ListByOrganizationID", s.ctx, s.orgID.String()).Return(&keys, nil).Once()
 
 	access := s.writeAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_API_KEY_READ}
 
-	result, err := s.svc.ListAPIKeys(s.ctx, &api_key_service.ListAPIKeysRequest{
+	result, err := s.svc.List(s.ctx, &api_key_service.ListRequest{
 		OrganizationID: s.orgID.String(),
 	}, access)
 	s.Require().NoError(err)
@@ -151,7 +143,7 @@ func (s *APIKeyServiceSuite) TestListAPIKeys_Success() {
 }
 
 func (s *APIKeyServiceSuite) TestUpdateAPIKey_InvalidPermission() {
-	resp, err := s.svc.UpdateAPIKey(s.ctx, &api_key_service.UpdateAPIKeyRequest{
+	resp, err := s.svc.Update(s.ctx, &api_key_service.UpdateRequest{
 		OrganizationID: s.orgID.String(),
 		APIKeyID:       uuid.New().String(),
 		Name:           "CI",
@@ -166,11 +158,11 @@ func (s *APIKeyServiceSuite) TestUpdateAPIKey_Success() {
 	existing := apiKey(keyID, s.orgID, "Old")
 	existing.Permissions = []string{constants.PERMISSION_ORG_READ}
 	s.expectProOrg()
-	s.apiKeysRepo.On("GetAPIKeyByID", s.ctx, s.orgID.String(), keyID.String()).Return(existing, nil).Once()
-	s.apiKeysRepo.On("UpdateAPIKey", s.ctx, mock.AnythingOfType("*models.APIKey")).Return(nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.apiKeysRepo.On("GetByID", s.ctx, s.orgID.String(), keyID.String()).Return(existing, nil).Once()
+	s.apiKeysRepo.On("Update", s.ctx, mock.AnythingOfType("*models.APIKey")).Return(nil).Once()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
-	updated, err := s.svc.UpdateAPIKey(s.ctx, &api_key_service.UpdateAPIKeyRequest{
+	updated, err := s.svc.Update(s.ctx, &api_key_service.UpdateRequest{
 		OrganizationID: s.orgID.String(),
 		APIKeyID:       keyID.String(),
 		Name:           "New",
@@ -184,14 +176,14 @@ func (s *APIKeyServiceSuite) TestDeleteAPIKey_Success() {
 	keyID := uuid.New()
 	existing := apiKey(keyID, s.orgID, "CI")
 	s.expectProOrg()
-	s.apiKeysRepo.On("GetAPIKeyByID", s.ctx, s.orgID.String(), keyID.String()).Return(existing, nil).Once()
-	s.apiKeysRepo.On("DeleteAPIKey", s.ctx, s.orgID.String(), keyID.String()).Return(nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.apiKeysRepo.On("GetByID", s.ctx, s.orgID.String(), keyID.String()).Return(existing, nil).Once()
+	s.apiKeysRepo.On("Delete", s.ctx, s.orgID.String(), keyID.String()).Return(nil).Once()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
 	access := s.writeAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_API_KEY_DELETE}
 
-	err := s.svc.DeleteAPIKey(s.ctx, &api_key_service.DeleteAPIKeyRequest{
+	err := s.svc.Delete(s.ctx, &api_key_service.DeleteRequest{
 		OrganizationID: s.orgID.String(),
 		APIKeyID:       keyID.String(),
 	}, access)
@@ -232,18 +224,8 @@ func mockLogger() chi_logger.Logger {
 	return m
 }
 
-func organization(orgID uuid.UUID, name string) *models.Organization {
-	return &models.Organization{
-		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
-			ModelBase: chi_types.ModelBase{ID: orgID},
-		},
-		Name: name,
-	}
-}
-
 func billingAccount(orgID uuid.UUID, tier, provider string, expiresAt *time.Time) *models.OrganizationBillingAccount {
 	return &models.OrganizationBillingAccount{
-		ModelBase:             chi_types.ModelBase{ID: orgID},
 		OrganizationID:        orgID,
 		Provider:              provider,
 		SubscriptionTier:      tier,
@@ -253,7 +235,9 @@ func billingAccount(orgID uuid.UUID, tier, provider string, expiresAt *time.Time
 
 func apiKey(id, orgID uuid.UUID, name string) *models.APIKey {
 	return &models.APIKey{
-		ModelBase:      chi_types.ModelBase{ID: id},
+		ModelBase: chi_types.ModelBase{
+			ID: id,
+		},
 		OrganizationID: orgID,
 		Name:           name,
 		KeyPrefix:      "ak_test",

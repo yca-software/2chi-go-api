@@ -30,7 +30,6 @@ func (s *AuthorizerSuite) SetupTest() {
 
 func (s *AuthorizerSuite) billingAccount(orgID uuid.UUID, tier, provider string, expiresAt *time.Time) *models.OrganizationBillingAccount {
 	return &models.OrganizationBillingAccount{
-		ModelBase:             chi_types.ModelBase{ID: orgID},
 		OrganizationID:        orgID,
 		Provider:              provider,
 		SubscriptionTier:      tier,

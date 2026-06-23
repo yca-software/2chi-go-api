@@ -13,46 +13,46 @@ import (
 )
 
 const (
-	RolesTableName = "roles"
+	TableName = "roles"
 )
 
 var (
-	RolesColumns = []string{
+	Columns = []string{
 		"id", "created_at", "updated_at", "organization_id", "name", "description", "permissions", "locked",
 	}
 )
 
-type RolesRepository interface {
-	WithTx(tx chi_repository.Tx) RolesRepository
+type Repository interface {
+	WithTx(tx chi_repository.Tx) Repository
 
-	CreateRole(ctx context.Context, role *models.Role) error
-	CreateRoles(ctx context.Context, roles *[]models.Role) error
-	UpdateRole(ctx context.Context, role *models.Role) error
-	DeleteRole(ctx context.Context, organizationID, id string) error
+	Create(ctx context.Context, role *models.Role) error
+	CreateMany(ctx context.Context, roles *[]models.Role) error
+	Update(ctx context.Context, role *models.Role) error
+	Delete(ctx context.Context, organizationID, id string) error
 
-	GetRoleByID(ctx context.Context, organizationID, id string) (*models.Role, error)
-	ListRolesByOrganizationID(ctx context.Context, organizationID string) (*[]models.Role, error)
+	GetByID(ctx context.Context, organizationID, id string) (*models.Role, error)
+	ListByOrganizationID(ctx context.Context, organizationID string) (*[]models.Role, error)
 }
 
-type rolesRepository struct {
-	rolesRepo chi_repository.Repository[models.Role]
+type repository struct {
+	repo chi_repository.Repository[models.Role]
 }
 
-func NewRolesRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) RolesRepository {
-	return &rolesRepository{
-		rolesRepo: chi_repository.NewRepository[models.Role](db, RolesTableName, RolesColumns, metricsHook),
+func NewRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) Repository {
+	return &repository{
+		repo: chi_repository.NewRepository[models.Role](db, TableName, Columns, metricsHook),
 	}
 }
 
-func (r *rolesRepository) WithTx(tx chi_repository.Tx) RolesRepository {
-	return &rolesRepository{
-		rolesRepo: r.rolesRepo.WithTx(tx),
+func (r *repository) WithTx(tx chi_repository.Tx) Repository {
+	return &repository{
+		repo: r.repo.WithTx(tx),
 	}
 }
 
-func (r *rolesRepository) CreateRole(ctx context.Context, role *models.Role) error {
+func (r *repository) Create(ctx context.Context, role *models.Role) error {
 	now := time.Now()
-	return r.rolesRepo.Create(ctx, map[string]any{
+	return r.repo.Create(ctx, map[string]any{
 		"id":              role.ID,
 		"created_at":      now,
 		"updated_at":      now,
@@ -64,7 +64,7 @@ func (r *rolesRepository) CreateRole(ctx context.Context, role *models.Role) err
 	})
 }
 
-func (r *rolesRepository) CreateRoles(ctx context.Context, roles *[]models.Role) error {
+func (r *repository) CreateMany(ctx context.Context, roles *[]models.Role) error {
 	now := time.Now()
 	data := make([]map[string]any, len(*roles))
 	for i, role := range *roles {
@@ -79,11 +79,11 @@ func (r *rolesRepository) CreateRoles(ctx context.Context, roles *[]models.Role)
 			"locked":          role.Locked,
 		}
 	}
-	return r.rolesRepo.CreateMany(ctx, RolesColumns, data, false)
+	return r.repo.CreateMany(ctx, Columns, data, false)
 }
 
-func (r *rolesRepository) UpdateRole(ctx context.Context, role *models.Role) error {
-	return r.rolesRepo.Update(ctx, squirrel.And{
+func (r *repository) Update(ctx context.Context, role *models.Role) error {
+	return r.repo.Update(ctx, squirrel.And{
 		squirrel.Eq{"id": role.ID},
 		squirrel.Eq{"organization_id": role.OrganizationID},
 		squirrel.Eq{"locked": false},
@@ -95,21 +95,21 @@ func (r *rolesRepository) UpdateRole(ctx context.Context, role *models.Role) err
 	})
 }
 
-func (r *rolesRepository) DeleteRole(ctx context.Context, organizationID, id string) error {
-	return r.rolesRepo.Delete(ctx, squirrel.And{
+func (r *repository) Delete(ctx context.Context, organizationID, id string) error {
+	return r.repo.Delete(ctx, squirrel.And{
 		squirrel.Eq{"id": id},
 		squirrel.Eq{"organization_id": organizationID},
 		squirrel.Eq{"locked": false},
 	})
 }
 
-func (r *rolesRepository) GetRoleByID(ctx context.Context, organizationID, id string) (*models.Role, error) {
-	return r.rolesRepo.Get(ctx, squirrel.And{
+func (r *repository) GetByID(ctx context.Context, organizationID, id string) (*models.Role, error) {
+	return r.repo.Get(ctx, squirrel.And{
 		squirrel.Eq{"id": id},
 		squirrel.Eq{"organization_id": organizationID},
 	}, nil)
 }
 
-func (r *rolesRepository) ListRolesByOrganizationID(ctx context.Context, organizationID string) (*[]models.Role, error) {
-	return r.rolesRepo.Select(ctx, squirrel.Eq{"organization_id": organizationID}, nil, "name ASC")
+func (r *repository) ListByOrganizationID(ctx context.Context, organizationID string) (*[]models.Role, error) {
+	return r.repo.Select(ctx, squirrel.Eq{"organization_id": organizationID}, nil, "name ASC")
 }

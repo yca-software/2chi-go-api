@@ -13,37 +13,37 @@ import (
 	chi_repository "github.com/yca-software/2chi-go-repository"
 )
 
-const ImpersonationSessionsTableName = "impersonation_sessions"
+const TableName = "impersonation_sessions"
 
-var ImpersonationSessionsColumns = []string{
+var Columns = []string{
 	"id", "started_at", "ended_at", "end_reason",
 	"admin_id", "admin_email", "target_user_id", "target_user_email",
 	"refresh_token_id", "ip", "user_agent",
 }
 
-type ImpersonationSessionsRepository interface {
-	WithTx(tx chi_repository.Tx) ImpersonationSessionsRepository
+type Repository interface {
+	WithTx(tx chi_repository.Tx) Repository
 
-	CreateSession(ctx context.Context, session *models.ImpersonationSession) error
-	EndSessionByRefreshTokenID(ctx context.Context, refreshTokenID uuid.UUID, endedAt time.Time, reason string) error
-	EndExpiredSessions(ctx context.Context, now time.Time, expiredReason string) (int64, error)
+	Create(ctx context.Context, session *models.ImpersonationSession) error
+	EndByRefreshTokenID(ctx context.Context, refreshTokenID uuid.UUID, endedAt time.Time, reason string) error
+	EndExpired(ctx context.Context, now time.Time, expiredReason string) (int64, error)
 }
 
-type impersonationSessionsRepository struct {
-	sessionsRepo chi_repository.Repository[models.ImpersonationSession]
+type repository struct {
+	repo chi_repository.Repository[models.ImpersonationSession]
 }
 
-func NewImpersonationSessionsRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) ImpersonationSessionsRepository {
-	return &impersonationSessionsRepository{
-		sessionsRepo: chi_repository.NewRepository[models.ImpersonationSession](db, ImpersonationSessionsTableName, ImpersonationSessionsColumns, metricsHook),
+func NewRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) Repository {
+	return &repository{
+		repo: chi_repository.NewRepository[models.ImpersonationSession](db, TableName, Columns, metricsHook),
 	}
 }
 
-func (r *impersonationSessionsRepository) WithTx(tx chi_repository.Tx) ImpersonationSessionsRepository {
-	return &impersonationSessionsRepository{sessionsRepo: r.sessionsRepo.WithTx(tx)}
+func (r *repository) WithTx(tx chi_repository.Tx) Repository {
+	return &repository{repo: r.repo.WithTx(tx)}
 }
 
-func (r *impersonationSessionsRepository) CreateSession(ctx context.Context, session *models.ImpersonationSession) error {
+func (r *repository) Create(ctx context.Context, session *models.ImpersonationSession) error {
 	data := map[string]any{
 		"id":                session.ID,
 		"admin_id":          session.AdminID,
@@ -57,11 +57,11 @@ func (r *impersonationSessionsRepository) CreateSession(ctx context.Context, ses
 	if !session.StartedAt.IsZero() {
 		data["started_at"] = session.StartedAt
 	}
-	return r.sessionsRepo.Create(ctx, data)
+	return r.repo.Create(ctx, data)
 }
 
-func (r *impersonationSessionsRepository) EndSessionByRefreshTokenID(ctx context.Context, refreshTokenID uuid.UUID, endedAt time.Time, reason string) error {
-	return r.sessionsRepo.Update(ctx, squirrel.And{
+func (r *repository) EndByRefreshTokenID(ctx context.Context, refreshTokenID uuid.UUID, endedAt time.Time, reason string) error {
+	return r.repo.Update(ctx, squirrel.And{
 		squirrel.Eq{"refresh_token_id": refreshTokenID},
 		squirrel.Eq{"ended_at": nil},
 	}, map[string]any{
@@ -70,7 +70,7 @@ func (r *impersonationSessionsRepository) EndSessionByRefreshTokenID(ctx context
 	})
 }
 
-func (r *impersonationSessionsRepository) EndExpiredSessions(ctx context.Context, now time.Time, expiredReason string) (int64, error) {
+func (r *repository) EndExpired(ctx context.Context, now time.Time, expiredReason string) (int64, error) {
 	const query = `
 UPDATE impersonation_sessions s
 SET
@@ -91,7 +91,7 @@ AND (
         AND s.started_at + interval '1 hour' <= $1
     )
 )`
-	result, err := r.sessionsRepo.DB().ExecContext(ctx, query, now, expiredReason)
+	result, err := r.repo.DB().ExecContext(ctx, query, now, expiredReason)
 	if err != nil {
 		return 0, chi_repository.WrapSQLError(err)
 	}

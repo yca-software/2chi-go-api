@@ -15,39 +15,39 @@ import (
 )
 
 const (
-	UserLegalDocumentAcceptancesTableName = "user_legal_document_acceptances"
+	TableName = "user_legal_document_acceptances"
 )
 
 var (
-	UserLegalDocumentAcceptancesColumns = []string{"id", "created_at", "updated_at", "user_id", "document_type", "document_version"}
+	Columns = []string{"id", "created_at", "updated_at", "user_id", "document_type", "document_version"}
 )
 
-type UserLegalDocumentAcceptanceRepository interface {
-	WithTx(tx chi_repository.Tx) UserLegalDocumentAcceptanceRepository
+type Repository interface {
+	WithTx(tx chi_repository.Tx) Repository
 
-	CreateUserLegalDocumentAcceptance(ctx context.Context, acceptance *models.UserLegalDocumentAcceptance) error
-	ListUserLegalDocumentAcceptancesByUserID(ctx context.Context, userID string) (*[]models.UserLegalDocumentAcceptance, error)
-	GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType(ctx context.Context, userID, documentType string) (*models.UserLegalDocumentAcceptance, error)
-	ListLatestUserLegalDocumentAcceptancesByUserID(ctx context.Context, userID string) (*[]models.UserLegalDocumentAcceptance, error)
+	Create(ctx context.Context, acceptance *models.UserLegalDocumentAcceptance) error
+	ListByUserID(ctx context.Context, userID string) (*[]models.UserLegalDocumentAcceptance, error)
+	GetLatestByUserIDAndDocumentType(ctx context.Context, userID, documentType string) (*models.UserLegalDocumentAcceptance, error)
+	ListLatestByUserID(ctx context.Context, userID string) (*[]models.UserLegalDocumentAcceptance, error)
 }
 
-type userLegalDocumentAcceptanceRepository struct {
+type repository struct {
 	legalDocumentAcceptancesRepo chi_repository.Repository[models.UserLegalDocumentAcceptance]
 }
 
-func NewUserLegalDocumentAcceptanceRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) UserLegalDocumentAcceptanceRepository {
-	return &userLegalDocumentAcceptanceRepository{
-		legalDocumentAcceptancesRepo: chi_repository.NewRepository[models.UserLegalDocumentAcceptance](db, UserLegalDocumentAcceptancesTableName, UserLegalDocumentAcceptancesColumns, metricsHook),
+func NewRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) Repository {
+	return &repository{
+		legalDocumentAcceptancesRepo: chi_repository.NewRepository[models.UserLegalDocumentAcceptance](db, TableName, Columns, metricsHook),
 	}
 }
 
-func (r *userLegalDocumentAcceptanceRepository) WithTx(tx chi_repository.Tx) UserLegalDocumentAcceptanceRepository {
-	return &userLegalDocumentAcceptanceRepository{
+func (r *repository) WithTx(tx chi_repository.Tx) Repository {
+	return &repository{
 		legalDocumentAcceptancesRepo: r.legalDocumentAcceptancesRepo.WithTx(tx),
 	}
 }
 
-func (r *userLegalDocumentAcceptanceRepository) CreateUserLegalDocumentAcceptance(ctx context.Context, acceptance *models.UserLegalDocumentAcceptance) error {
+func (r *repository) Create(ctx context.Context, acceptance *models.UserLegalDocumentAcceptance) error {
 	now := time.Now()
 	return r.legalDocumentAcceptancesRepo.Create(ctx, map[string]any{
 		"id":               acceptance.ID,
@@ -59,11 +59,11 @@ func (r *userLegalDocumentAcceptanceRepository) CreateUserLegalDocumentAcceptanc
 	})
 }
 
-func (r *userLegalDocumentAcceptanceRepository) ListUserLegalDocumentAcceptancesByUserID(ctx context.Context, userID string) (*[]models.UserLegalDocumentAcceptance, error) {
+func (r *repository) ListByUserID(ctx context.Context, userID string) (*[]models.UserLegalDocumentAcceptance, error) {
 	return r.legalDocumentAcceptancesRepo.Select(ctx, squirrel.Eq{"user_id": userID}, nil, "document_type ASC, created_at DESC")
 }
 
-func (r *userLegalDocumentAcceptanceRepository) GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType(ctx context.Context, userID, documentType string) (*models.UserLegalDocumentAcceptance, error) {
+func (r *repository) GetLatestByUserIDAndDocumentType(ctx context.Context, userID, documentType string) (*models.UserLegalDocumentAcceptance, error) {
 	rows, err := r.legalDocumentAcceptancesRepo.PaginatedSelect(ctx, squirrel.Eq{
 		"user_id":       userID,
 		"document_type": documentType,
@@ -77,13 +77,13 @@ func (r *userLegalDocumentAcceptanceRepository) GetLatestUserLegalDocumentAccept
 	return &(*rows)[0], nil
 }
 
-func (r *userLegalDocumentAcceptanceRepository) ListLatestUserLegalDocumentAcceptancesByUserID(ctx context.Context, userID string) (*[]models.UserLegalDocumentAcceptance, error) {
-	columns := strings.Join(UserLegalDocumentAcceptancesColumns, ", ")
+func (r *repository) ListLatestByUserID(ctx context.Context, userID string) (*[]models.UserLegalDocumentAcceptance, error) {
+	columns := strings.Join(Columns, ", ")
 	sqlStr := fmt.Sprintf(`
 SELECT DISTINCT ON (document_type) %s
 FROM %s
 WHERE user_id = $1
-ORDER BY document_type, created_at DESC`, columns, UserLegalDocumentAcceptancesTableName)
+ORDER BY document_type, created_at DESC`, columns, TableName)
 
 	var results []models.UserLegalDocumentAcceptance
 	if err := r.legalDocumentAcceptancesRepo.DB().SelectContext(ctx, &results, sqlStr, userID); err != nil {

@@ -12,7 +12,7 @@ type MockService struct {
 	mock.Mock
 }
 
-func (m *MockService) CreateRole(ctx context.Context, req *CreateRoleRequest, access *chi_types.AccessInfo) (*models.Role, error) {
+func (m *MockService) Create(ctx context.Context, req *CreateRequest, access *chi_types.AccessInfo) (*models.Role, error) {
 	args := m.Called(ctx, req, access)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -20,7 +20,7 @@ func (m *MockService) CreateRole(ctx context.Context, req *CreateRoleRequest, ac
 	return args.Get(0).(*models.Role), args.Error(1)
 }
 
-func (m *MockService) UpdateRole(ctx context.Context, req *UpdateRoleRequest, access *chi_types.AccessInfo) (*models.Role, error) {
+func (m *MockService) Update(ctx context.Context, req *UpdateRequest, access *chi_types.AccessInfo) (*models.Role, error) {
 	args := m.Called(ctx, req, access)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -28,12 +28,12 @@ func (m *MockService) UpdateRole(ctx context.Context, req *UpdateRoleRequest, ac
 	return args.Get(0).(*models.Role), args.Error(1)
 }
 
-func (m *MockService) DeleteRole(ctx context.Context, req *DeleteRoleRequest, access *chi_types.AccessInfo) error {
+func (m *MockService) Delete(ctx context.Context, req *DeleteRequest, access *chi_types.AccessInfo) error {
 	args := m.Called(ctx, req, access)
 	return args.Error(0)
 }
 
-func (m *MockService) ListRoles(ctx context.Context, req *ListRolesRequest, access *chi_types.AccessInfo) (*[]models.Role, error) {
+func (m *MockService) List(ctx context.Context, req *ListRequest, access *chi_types.AccessInfo) (*[]models.Role, error) {
 	args := m.Called(ctx, req, access)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

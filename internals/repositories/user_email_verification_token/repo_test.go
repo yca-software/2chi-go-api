@@ -38,30 +38,30 @@ func TestMain(m *testing.M) {
 	os.Exit(testutil.IntegrationTestMain(m))
 }
 
-func TestUserEmailVerificationTokenRepositorySuite(t *testing.T) {
-	suite.Run(t, new(UserEmailVerificationTokenRepositorySuite))
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(RepositorySuite))
 }
 
-type UserEmailVerificationTokenRepositorySuite struct {
+type RepositorySuite struct {
 	suite.Suite
 
 	db   *sqlx.DB
-	repo user_email_verification_token_repository.UserEmailVerificationTokenRepository
+	repo user_email_verification_token_repository.Repository
 	ctx  context.Context
 }
 
-func (s *UserEmailVerificationTokenRepositorySuite) SetupSuite() {
+func (s *RepositorySuite) SetupSuite() {
 	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
 	s.Require().NoError(err)
 
-	s.repo = user_email_verification_token_repository.NewUserEmailVerificationTokenRepository(s.db, nil)
+	s.repo = user_email_verification_token_repository.NewRepository(s.db, nil)
 	s.ctx = context.Background()
 }
 
-func (s *UserEmailVerificationTokenRepositorySuite) SetupTest() {
+func (s *RepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
 INSERT INTO users (
 	id, created_at, deleted_at, first_name, last_name, language, email, password
@@ -73,12 +73,12 @@ INSERT INTO user_email_verification_tokens (id, user_id, created_at, expires_at,
 	s.Require().NoError(err)
 }
 
-func (s *UserEmailVerificationTokenRepositorySuite) TearDownTest() {
+func (s *RepositorySuite) TearDownTest() {
 	_, err := s.db.ExecContext(s.ctx, `TRUNCATE TABLE users CASCADE`)
 	s.Require().NoError(err)
 }
 
-func (s *UserEmailVerificationTokenRepositorySuite) TestCreateEmailVerificationToken() {
+func (s *RepositorySuite) TestCreate() {
 	token := &models.UserEmailVerificationToken{
 		ModelBase: chi_types.ModelBase{
 			ID: uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccc03"),
@@ -88,33 +88,33 @@ func (s *UserEmailVerificationTokenRepositorySuite) TestCreateEmailVerificationT
 		ExpiresAt: seedTokenExpiresFuture,
 		TokenHash: "email-verify-hash-new",
 	}
-	s.Require().NoError(s.repo.CreateEmailVerificationToken(s.ctx, token))
+	s.Require().NoError(s.repo.Create(s.ctx, token))
 
-	got, err := s.repo.GetEmailVerificationTokenByHash(s.ctx, "email-verify-hash-new")
+	got, err := s.repo.GetByHash(s.ctx, "email-verify-hash-new")
 	s.Require().NoError(err)
 	s.Equal("cccccccc-cccc-cccc-cccc-cccccccccc03", got.ID.String())
 }
 
-func (s *UserEmailVerificationTokenRepositorySuite) TestGetEmailVerificationTokenByHash() {
-	got, err := s.repo.GetEmailVerificationTokenByHash(s.ctx, seedEmailVerifyHash)
+func (s *RepositorySuite) TestGetByHash() {
+	got, err := s.repo.GetByHash(s.ctx, seedEmailVerifyHash)
 	s.Require().NoError(err)
 	s.Equal(seedEmailVerifyID, got.ID.String())
 }
 
-func (s *UserEmailVerificationTokenRepositorySuite) TestMarkEmailVerificationTokenAsUsed() {
-	s.Require().NoError(s.repo.MarkEmailVerificationTokenAsUsed(s.ctx, seedEmailVerifyID))
-	got, err := s.repo.GetEmailVerificationTokenByHash(s.ctx, seedEmailVerifyHash)
+func (s *RepositorySuite) TestMarkAsUsed() {
+	s.Require().NoError(s.repo.MarkAsUsed(s.ctx, seedEmailVerifyID))
+	got, err := s.repo.GetByHash(s.ctx, seedEmailVerifyHash)
 	s.Require().NoError(err)
 	s.NotNil(got.UsedAt)
 }
 
-func (s *UserEmailVerificationTokenRepositorySuite) TestCleanupStaleUnusedEmailVerificationTokens() {
-	s.Require().NoError(s.repo.CleanupStaleUnusedEmailVerificationTokens(s.ctx))
-	_, err := s.repo.GetEmailVerificationTokenByHash(s.ctx, "email-verify-hash-stale")
+func (s *RepositorySuite) TestCleanupStaleUnused() {
+	s.Require().NoError(s.repo.CleanupStaleUnused(s.ctx))
+	_, err := s.repo.GetByHash(s.ctx, "email-verify-hash-stale")
 	s.requireNotFound(err)
 }
 
-func (s *UserEmailVerificationTokenRepositorySuite) TestWithTx() {
+func (s *RepositorySuite) TestWithTx() {
 	token := &models.UserEmailVerificationToken{
 		ModelBase: chi_types.ModelBase{
 			ID: uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccc04"),
@@ -125,16 +125,16 @@ func (s *UserEmailVerificationTokenRepositorySuite) TestWithTx() {
 		TokenHash: "email-verify-hash-tx",
 	}
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
-		return s.repo.WithTx(tx).CreateEmailVerificationToken(s.ctx, token)
+		return s.repo.WithTx(tx).Create(s.ctx, token)
 	})
 	s.Require().NoError(err)
 
-	got, err := s.repo.GetEmailVerificationTokenByHash(s.ctx, "email-verify-hash-tx")
+	got, err := s.repo.GetByHash(s.ctx, "email-verify-hash-tx")
 	s.Require().NoError(err)
 	s.Equal("cccccccc-cccc-cccc-cccc-cccccccccc04", got.ID.String())
 }
 
-func (s *UserEmailVerificationTokenRepositorySuite) requireNotFound(err error) {
+func (s *RepositorySuite) requireNotFound(err error) {
 	s.T().Helper()
 	s.Require().Error(err)
 	var apiErr *chi_error.Error

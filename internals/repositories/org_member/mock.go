@@ -8,31 +8,31 @@ import (
 	chi_repository "github.com/yca-software/2chi-go-repository"
 )
 
-type MockOrganizationMembersRepository struct {
+type MockRepository struct {
 	mock.Mock
 }
 
-func (m *MockOrganizationMembersRepository) WithTx(_ chi_repository.Tx) OrganizationMembersRepository {
+func (m *MockRepository) WithTx(_ chi_repository.Tx) Repository {
 	return m
 }
 
-func (m *MockOrganizationMembersRepository) CreateOrganizationMember(ctx context.Context, member *models.OrganizationMember) error {
+func (m *MockRepository) Create(ctx context.Context, member *models.OrganizationMember) error {
 	return m.Called(ctx, member).Error(0)
 }
 
-func (m *MockOrganizationMembersRepository) UpdateOrganizationMember(ctx context.Context, member *models.OrganizationMember) error {
+func (m *MockRepository) Update(ctx context.Context, member *models.OrganizationMember) error {
 	return m.Called(ctx, member).Error(0)
 }
 
-func (m *MockOrganizationMembersRepository) DeleteOrganizationMember(ctx context.Context, organizationID, userID string) error {
+func (m *MockRepository) DeleteByUserID(ctx context.Context, organizationID, userID string) error {
 	return m.Called(ctx, organizationID, userID).Error(0)
 }
 
-func (m *MockOrganizationMembersRepository) DeleteOrganizationMemberByMembershipID(ctx context.Context, organizationID, memberID string) error {
+func (m *MockRepository) DeleteByMemberID(ctx context.Context, organizationID, memberID string) error {
 	return m.Called(ctx, organizationID, memberID).Error(0)
 }
 
-func (m *MockOrganizationMembersRepository) GetOrganizationMemberByID(ctx context.Context, organizationID, userID string) (*models.OrganizationMember, error) {
+func (m *MockRepository) GetByUserID(ctx context.Context, organizationID, userID string) (*models.OrganizationMember, error) {
 	args := m.Called(ctx, organizationID, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -40,7 +40,7 @@ func (m *MockOrganizationMembersRepository) GetOrganizationMemberByID(ctx contex
 	return args.Get(0).(*models.OrganizationMember), args.Error(1)
 }
 
-func (m *MockOrganizationMembersRepository) GetOrganizationMemberByMembershipID(ctx context.Context, organizationID, memberID string) (*models.OrganizationMember, error) {
+func (m *MockRepository) GetByMemberID(ctx context.Context, organizationID, memberID string) (*models.OrganizationMember, error) {
 	args := m.Called(ctx, organizationID, memberID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -48,7 +48,7 @@ func (m *MockOrganizationMembersRepository) GetOrganizationMemberByMembershipID(
 	return args.Get(0).(*models.OrganizationMember), args.Error(1)
 }
 
-func (m *MockOrganizationMembersRepository) GetOrganizationMemberByIDWithUser(ctx context.Context, organizationID, userID string) (*models.OrganizationMemberWithUser, error) {
+func (m *MockRepository) GetByUserIDWithUser(ctx context.Context, organizationID, userID string) (*models.OrganizationMemberWithUser, error) {
 	args := m.Called(ctx, organizationID, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -56,7 +56,7 @@ func (m *MockOrganizationMembersRepository) GetOrganizationMemberByIDWithUser(ct
 	return args.Get(0).(*models.OrganizationMemberWithUser), args.Error(1)
 }
 
-func (m *MockOrganizationMembersRepository) GetOrganizationMemberByMembershipIDWithUser(ctx context.Context, organizationID, memberID string) (*models.OrganizationMemberWithUser, error) {
+func (m *MockRepository) GetByMemberIDWithUser(ctx context.Context, organizationID, memberID string) (*models.OrganizationMemberWithUser, error) {
 	args := m.Called(ctx, organizationID, memberID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -64,7 +64,7 @@ func (m *MockOrganizationMembersRepository) GetOrganizationMemberByMembershipIDW
 	return args.Get(0).(*models.OrganizationMemberWithUser), args.Error(1)
 }
 
-func (m *MockOrganizationMembersRepository) GetOrganizationMemberByIDWithOrganizationAndRole(ctx context.Context, organizationID, userID string) (*models.OrganizationMemberWithOrganizationAndRole, error) {
+func (m *MockRepository) GetByUserIDWithOrganizationAndRole(ctx context.Context, organizationID, userID string) (*models.OrganizationMemberWithOrganizationAndRole, error) {
 	args := m.Called(ctx, organizationID, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -72,23 +72,7 @@ func (m *MockOrganizationMembersRepository) GetOrganizationMemberByIDWithOrganiz
 	return args.Get(0).(*models.OrganizationMemberWithOrganizationAndRole), args.Error(1)
 }
 
-func (m *MockOrganizationMembersRepository) GetOrganizationMemberByUserIDAndOrganizationID(ctx context.Context, userID, organizationID string) (*models.OrganizationMember, error) {
-	args := m.Called(ctx, userID, organizationID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*models.OrganizationMember), args.Error(1)
-}
-
-func (m *MockOrganizationMembersRepository) ListByUserID(ctx context.Context, userID string) (*[]models.OrganizationMemberWithOrganization, error) {
-	args := m.Called(ctx, userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*[]models.OrganizationMemberWithOrganization), args.Error(1)
-}
-
-func (m *MockOrganizationMembersRepository) ListByUserIDWithRole(ctx context.Context, userID string) (*[]models.OrganizationMemberWithOrganizationAndRole, error) {
+func (m *MockRepository) ListByUserID(ctx context.Context, userID string) (*[]models.OrganizationMemberWithOrganizationAndRole, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -96,7 +80,7 @@ func (m *MockOrganizationMembersRepository) ListByUserIDWithRole(ctx context.Con
 	return args.Get(0).(*[]models.OrganizationMemberWithOrganizationAndRole), args.Error(1)
 }
 
-func (m *MockOrganizationMembersRepository) ListByOrganizationID(ctx context.Context, organizationID string) (*[]models.OrganizationMemberWithUser, error) {
+func (m *MockRepository) ListByOrganizationID(ctx context.Context, organizationID string) (*[]models.OrganizationMemberWithUser, error) {
 	args := m.Called(ctx, organizationID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -104,7 +88,7 @@ func (m *MockOrganizationMembersRepository) ListByOrganizationID(ctx context.Con
 	return args.Get(0).(*[]models.OrganizationMemberWithUser), args.Error(1)
 }
 
-func (m *MockOrganizationMembersRepository) ListUserEmailsForRole(ctx context.Context, organizationID, roleID string) ([]string, error) {
+func (m *MockRepository) ListUserEmailsForRole(ctx context.Context, organizationID, roleID string) ([]string, error) {
 	args := m.Called(ctx, organizationID, roleID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

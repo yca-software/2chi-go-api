@@ -112,7 +112,7 @@ func (s *SupportHandlerSuite) TestSubmit_InvalidBody() {
 
 func (s *SupportHandlerSuite) TestSubmit_Success() {
 	s.registerSubmit(s.access)
-	s.mockSvc.On("Submit", mock.Anything, mock.MatchedBy(func(req *support_service.SubmitSupportRequest) bool {
+	s.mockSvc.On("Submit", mock.Anything, mock.MatchedBy(func(req *support_service.SubmitRequest) bool {
 		return req.Subject == "Billing" &&
 			req.Message == "Need help" &&
 			req.PageURL == "https://app.example.com/settings" &&
@@ -131,7 +131,7 @@ func (s *SupportHandlerSuite) TestSubmit_Success() {
 
 func (s *SupportHandlerSuite) TestSubmit_Success_DefaultSubject() {
 	s.registerSubmit(s.access)
-	s.mockSvc.On("Submit", mock.Anything, mock.MatchedBy(func(req *support_service.SubmitSupportRequest) bool {
+	s.mockSvc.On("Submit", mock.Anything, mock.MatchedBy(func(req *support_service.SubmitRequest) bool {
 		return req.Subject == "(no subject)" && req.Message == "Need help"
 	}), s.access).Return(nil).Once()
 

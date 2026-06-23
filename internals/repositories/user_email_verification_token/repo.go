@@ -14,41 +14,41 @@ import (
 )
 
 const (
-	UserEmailVerificationTokensTableName = "user_email_verification_tokens"
+	TableName = "user_email_verification_tokens"
 )
 
 var (
-	UserEmailVerificationTokensColumns = []string{"id", "created_at", "updated_at", "user_id", "expires_at", "used_at", "token_hash"}
+	Columns = []string{"id", "created_at", "updated_at", "user_id", "expires_at", "used_at", "token_hash"}
 )
 
-type UserEmailVerificationTokenRepository interface {
-	WithTx(tx chi_repository.Tx) UserEmailVerificationTokenRepository
+type Repository interface {
+	WithTx(tx chi_repository.Tx) Repository
 
-	CreateEmailVerificationToken(ctx context.Context, token *models.UserEmailVerificationToken) error
-	GetEmailVerificationTokenByHash(ctx context.Context, hash string) (*models.UserEmailVerificationToken, error)
-	MarkEmailVerificationTokenAsUsed(ctx context.Context, tokenID string) error
-	CleanupStaleUnusedEmailVerificationTokens(ctx context.Context) error
+	Create(ctx context.Context, token *models.UserEmailVerificationToken) error
+	GetByHash(ctx context.Context, hash string) (*models.UserEmailVerificationToken, error)
+	MarkAsUsed(ctx context.Context, tokenID string) error
+	CleanupStaleUnused(ctx context.Context) error
 }
 
-type userEmailVerificationTokenRepository struct {
-	emailVerificationTokensRepo chi_repository.Repository[models.UserEmailVerificationToken]
+type repository struct {
+	repo chi_repository.Repository[models.UserEmailVerificationToken]
 }
 
-func NewUserEmailVerificationTokenRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) UserEmailVerificationTokenRepository {
-	return &userEmailVerificationTokenRepository{
-		emailVerificationTokensRepo: chi_repository.NewRepository[models.UserEmailVerificationToken](db, UserEmailVerificationTokensTableName, UserEmailVerificationTokensColumns, metricsHook),
+func NewRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) Repository {
+	return &repository{
+		repo: chi_repository.NewRepository[models.UserEmailVerificationToken](db, TableName, Columns, metricsHook),
 	}
 }
 
-func (r *userEmailVerificationTokenRepository) WithTx(tx chi_repository.Tx) UserEmailVerificationTokenRepository {
-	return &userEmailVerificationTokenRepository{
-		emailVerificationTokensRepo: r.emailVerificationTokensRepo.WithTx(tx),
+func (r *repository) WithTx(tx chi_repository.Tx) Repository {
+	return &repository{
+		repo: r.repo.WithTx(tx),
 	}
 }
 
-func (r *userEmailVerificationTokenRepository) CreateEmailVerificationToken(ctx context.Context, token *models.UserEmailVerificationToken) error {
+func (r *repository) Create(ctx context.Context, token *models.UserEmailVerificationToken) error {
 	now := time.Now()
-	return r.emailVerificationTokensRepo.Create(ctx, map[string]any{
+	return r.repo.Create(ctx, map[string]any{
 		"id":         token.ID,
 		"created_at": now,
 		"updated_at": now,
@@ -58,20 +58,20 @@ func (r *userEmailVerificationTokenRepository) CreateEmailVerificationToken(ctx 
 	})
 }
 
-func (r *userEmailVerificationTokenRepository) GetEmailVerificationTokenByHash(ctx context.Context, hash string) (*models.UserEmailVerificationToken, error) {
-	return r.emailVerificationTokensRepo.Get(ctx, squirrel.Eq{"token_hash": hash}, nil)
+func (r *repository) GetByHash(ctx context.Context, hash string) (*models.UserEmailVerificationToken, error) {
+	return r.repo.Get(ctx, squirrel.Eq{"token_hash": hash}, nil)
 }
 
-func (r *userEmailVerificationTokenRepository) MarkEmailVerificationTokenAsUsed(ctx context.Context, tokenID string) error {
-	return r.emailVerificationTokensRepo.Update(ctx, squirrel.Eq{"id": tokenID, "used_at": nil}, map[string]any{
+func (r *repository) MarkAsUsed(ctx context.Context, tokenID string) error {
+	return r.repo.Update(ctx, squirrel.Eq{"id": tokenID, "used_at": nil}, map[string]any{
 		"used_at":    time.Now(),
 		"updated_at": time.Now(),
 	})
 }
 
-func (r *userEmailVerificationTokenRepository) CleanupStaleUnusedEmailVerificationTokens(ctx context.Context) error {
+func (r *repository) CleanupStaleUnused(ctx context.Context) error {
 	threshold := time.Now().Add(-chi_archive.ArchivedDataRetentionPeriod)
-	return r.emailVerificationTokensRepo.Delete(ctx, squirrel.Or{
+	return r.repo.Delete(ctx, squirrel.Or{
 		squirrel.And{
 			squirrel.NotEq{"used_at": nil},
 			squirrel.LtOrEq{"used_at": threshold},

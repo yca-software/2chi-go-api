@@ -35,30 +35,30 @@ func TestMain(m *testing.M) {
 	os.Exit(testutil.IntegrationTestMain(m))
 }
 
-func TestImpersonationSessionsRepositorySuite(t *testing.T) {
-	suite.Run(t, new(ImpersonationSessionsRepositorySuite))
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(RepositorySuite))
 }
 
-type ImpersonationSessionsRepositorySuite struct {
+type RepositorySuite struct {
 	suite.Suite
 
 	db   *sqlx.DB
-	repo impersonation_session_repository.ImpersonationSessionsRepository
+	repo impersonation_session_repository.Repository
 	ctx  context.Context
 }
 
-func (s *ImpersonationSessionsRepositorySuite) SetupSuite() {
+func (s *RepositorySuite) SetupSuite() {
 	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
 	s.Require().NoError(err)
 
-	s.repo = impersonation_session_repository.NewImpersonationSessionsRepository(s.db, nil)
+	s.repo = impersonation_session_repository.NewRepository(s.db, nil)
 	s.ctx = context.Background()
 }
 
-func (s *ImpersonationSessionsRepositorySuite) SetupTest() {
+func (s *RepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
 INSERT INTO users (
 	id, created_at, deleted_at, first_name, last_name, language, email, password
@@ -87,12 +87,12 @@ INSERT INTO impersonation_sessions (
 	s.Require().NoError(err)
 }
 
-func (s *ImpersonationSessionsRepositorySuite) TearDownTest() {
+func (s *RepositorySuite) TearDownTest() {
 	_, err := s.db.ExecContext(s.ctx, `TRUNCATE TABLE impersonation_sessions, user_refresh_tokens, users CASCADE`)
 	s.Require().NoError(err)
 }
 
-func (s *ImpersonationSessionsRepositorySuite) TestCreateSession() {
+func (s *RepositorySuite) TestCreate() {
 	session := &models.ImpersonationSession{
 		ID:              uuid.MustParse(seedImpersonationNewSession),
 		StartedAt:       seedCreatedAtTime,
@@ -104,7 +104,7 @@ func (s *ImpersonationSessionsRepositorySuite) TestCreateSession() {
 		IP:              "127.0.0.1",
 		UserAgent:       "agent",
 	}
-	s.Require().NoError(s.repo.CreateSession(s.ctx, session))
+	s.Require().NoError(s.repo.Create(s.ctx, session))
 
 	var endedAt *time.Time
 	err := s.db.GetContext(s.ctx, &endedAt, `SELECT ended_at FROM impersonation_sessions WHERE id = $1`, seedImpersonationNewSession)
@@ -112,9 +112,9 @@ func (s *ImpersonationSessionsRepositorySuite) TestCreateSession() {
 	s.Nil(endedAt)
 }
 
-func (s *ImpersonationSessionsRepositorySuite) TestEndSessionByRefreshTokenID() {
+func (s *RepositorySuite) TestEndByRefreshTokenID() {
 	endedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	s.Require().NoError(s.repo.EndSessionByRefreshTokenID(s.ctx, uuid.MustParse(seedImpersonationRefreshID), endedAt, "logout"))
+	s.Require().NoError(s.repo.EndByRefreshTokenID(s.ctx, uuid.MustParse(seedImpersonationRefreshID), endedAt, "logout"))
 
 	var endReason *string
 	err := s.db.GetContext(s.ctx, &endReason, `
@@ -124,9 +124,9 @@ SELECT end_reason FROM impersonation_sessions WHERE id = $1`, seedImpersonationA
 	s.Equal("logout", *endReason)
 }
 
-func (s *ImpersonationSessionsRepositorySuite) TestEndExpiredSessions() {
+func (s *RepositorySuite) TestEndExpired() {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	count, err := s.repo.EndExpiredSessions(s.ctx, now, "expired")
+	count, err := s.repo.EndExpired(s.ctx, now, "expired")
 	s.Require().NoError(err)
 	s.GreaterOrEqual(count, int64(1))
 
@@ -137,7 +137,7 @@ SELECT ended_at FROM impersonation_sessions WHERE id = $1`, seedImpersonationOrp
 	s.NotNil(endedAt)
 }
 
-func (s *ImpersonationSessionsRepositorySuite) TestWithTx() {
+func (s *RepositorySuite) TestWithTx() {
 	session := &models.ImpersonationSession{
 		ID:              uuid.MustParse(seedImpersonationTxSession),
 		StartedAt:       seedCreatedAtTime,
@@ -150,7 +150,7 @@ func (s *ImpersonationSessionsRepositorySuite) TestWithTx() {
 		UserAgent:       "agent",
 	}
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
-		return s.repo.WithTx(tx).CreateSession(s.ctx, session)
+		return s.repo.WithTx(tx).Create(s.ctx, session)
 	})
 	s.Require().NoError(err)
 

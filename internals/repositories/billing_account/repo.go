@@ -2,6 +2,7 @@ package billing_account_repository
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"github.com/Masterminds/squirrel"
@@ -14,12 +15,12 @@ import (
 )
 
 const (
-	OrganizationBillingAccountsTableName = "organization_billing_accounts"
+	TableName = "organization_billing_accounts"
 )
 
 var (
-	OrganizationBillingAccountsColumns = []string{
-		"id", "created_at", "updated_at", "organization_id",
+	Columns = []string{
+		"organization_id", "created_at", "updated_at",
 		"billing_email", "provider", "provider_customer_id",
 		"provider_subscription_id",
 		"subscription_expires_at", "subscription_payment_interval",
@@ -28,91 +29,80 @@ var (
 	}
 )
 
-type OrganizationBillingAccountsRepository interface {
-	WithTx(tx chi_repository.Tx) OrganizationBillingAccountsRepository
+type Repository interface {
+	WithTx(tx chi_repository.Tx) Repository
 
-	CreateOrganizationBillingAccount(ctx context.Context, account *models.OrganizationBillingAccount) error
-	UpdateOrganizationBillingAccount(ctx context.Context, account *models.OrganizationBillingAccount) error
+	Create(ctx context.Context, account *models.OrganizationBillingAccount) error
+	Update(ctx context.Context, account *models.OrganizationBillingAccount) error
 
-	GetOrganizationBillingAccountByID(ctx context.Context, organizationID, id string) (*models.OrganizationBillingAccount, error)
-	GetOrganizationBillingAccountByOrganizationID(ctx context.Context, organizationID string) (*models.OrganizationBillingAccount, error)
-	GetOrganizationBillingAccountByProviderAndProviderCustomerID(ctx context.Context, provider, providerCustomerID string) (*models.OrganizationBillingAccount, error)
-	GetOrganizationBillingAccountByProviderAndProviderSubscriptionID(ctx context.Context, provider, providerSubscriptionID string) (*models.OrganizationBillingAccount, error)
+	GetByOrganizationID(ctx context.Context, organizationID string) (*models.OrganizationBillingAccount, error)
+	GetByProviderAndProviderCustomerID(ctx context.Context, provider, providerCustomerID string) (*models.OrganizationBillingAccount, error)
+	GetByProviderAndProviderSubscriptionID(ctx context.Context, provider, providerSubscriptionID string) (*models.OrganizationBillingAccount, error)
 
-	ListOrganizationBillingAccountsWithScheduledPlanChangeDue(ctx context.Context) (*[]models.OrganizationBillingAccount, error)
+	ListWithScheduledPlanChangeDue(ctx context.Context) (*[]models.OrganizationBillingAccount, error)
 }
 
-type organizationBillingAccountsRepository struct {
-	billingAccountsRepo chi_repository.Repository[models.OrganizationBillingAccount]
+type repository struct {
+	repo chi_repository.Repository[models.OrganizationBillingAccount]
 }
 
-func NewOrganizationBillingAccountsRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) OrganizationBillingAccountsRepository {
-	return &organizationBillingAccountsRepository{
-		billingAccountsRepo: chi_repository.NewRepository[models.OrganizationBillingAccount](db, OrganizationBillingAccountsTableName, OrganizationBillingAccountsColumns, metricsHook),
+func NewRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) Repository {
+	return &repository{
+		repo: chi_repository.NewRepository[models.OrganizationBillingAccount](db, TableName, Columns, metricsHook),
 	}
 }
 
-func (r *organizationBillingAccountsRepository) WithTx(tx chi_repository.Tx) OrganizationBillingAccountsRepository {
-	return &organizationBillingAccountsRepository{
-		billingAccountsRepo: r.billingAccountsRepo.WithTx(tx),
+func (r *repository) WithTx(tx chi_repository.Tx) Repository {
+	return &repository{
+		repo: r.repo.WithTx(tx),
 	}
 }
 
-func (r *organizationBillingAccountsRepository) CreateOrganizationBillingAccount(ctx context.Context, account *models.OrganizationBillingAccount) error {
+func (r *repository) Create(ctx context.Context, account *models.OrganizationBillingAccount) error {
 	now := time.Now()
 	data := map[string]any{
-		"id":                   account.ID,
+		"organization_id":      account.OrganizationID,
 		"created_at":           now,
 		"updated_at":           now,
-		"organization_id":      account.OrganizationID,
 		"billing_email":        account.BillingEmail,
 		"provider":             account.Provider,
 		"provider_customer_id": account.ProviderCustomerID,
 	}
-	for k, v := range organizationBillingAccountSubscriptionFields(account) {
-		data[k] = v
-	}
-	return r.billingAccountsRepo.Create(ctx, data)
+	maps.Copy(data, organizationBillingAccountSubscriptionFields(account))
+	return r.repo.Create(ctx, data)
 }
 
-func (r *organizationBillingAccountsRepository) UpdateOrganizationBillingAccount(ctx context.Context, account *models.OrganizationBillingAccount) error {
-	return r.billingAccountsRepo.Update(ctx, squirrel.And{
-		squirrel.Eq{"id": account.ID},
-		squirrel.Eq{"organization_id": account.OrganizationID},
-	}, organizationBillingAccountUpdateFields(account))
+func (r *repository) Update(ctx context.Context, account *models.OrganizationBillingAccount) error {
+	data := organizationBillingAccountSubscriptionFields(account)
+	data["billing_email"] = account.BillingEmail
+	data["provider"] = account.Provider
+	data["provider_customer_id"] = account.ProviderCustomerID
+	data["updated_at"] = time.Now()
+	return r.repo.Update(ctx, squirrel.Eq{"organization_id": account.OrganizationID}, data)
 }
 
-func (r *organizationBillingAccountsRepository) GetOrganizationBillingAccountByID(ctx context.Context, organizationID, id string) (*models.OrganizationBillingAccount, error) {
-	return r.billingAccountsRepo.Get(ctx, squirrel.And{
-		squirrel.Eq{"id": id},
-		squirrel.Eq{"organization_id": organizationID},
-	}, nil)
+func (r *repository) GetByOrganizationID(ctx context.Context, organizationID string) (*models.OrganizationBillingAccount, error) {
+	return r.repo.Get(ctx, squirrel.Eq{"organization_id": organizationID}, nil)
 }
 
-func (r *organizationBillingAccountsRepository) GetOrganizationBillingAccountByOrganizationID(ctx context.Context, organizationID string) (*models.OrganizationBillingAccount, error) {
-	return r.billingAccountsRepo.Get(ctx, squirrel.Eq{"organization_id": organizationID}, nil)
-}
-
-func (r *organizationBillingAccountsRepository) GetOrganizationBillingAccountByProviderAndProviderCustomerID(ctx context.Context, provider, providerCustomerID string) (*models.OrganizationBillingAccount, error) {
-	return r.billingAccountsRepo.Get(ctx, squirrel.Eq{
+func (r *repository) GetByProviderAndProviderCustomerID(ctx context.Context, provider, providerCustomerID string) (*models.OrganizationBillingAccount, error) {
+	return r.repo.Get(ctx, squirrel.Eq{
 		"provider":             provider,
 		"provider_customer_id": providerCustomerID,
 	}, nil)
 }
 
-func (r *organizationBillingAccountsRepository) GetOrganizationBillingAccountByProviderAndProviderSubscriptionID(ctx context.Context, provider, providerSubscriptionID string) (*models.OrganizationBillingAccount, error) {
-	return r.billingAccountsRepo.Get(ctx, squirrel.Eq{
+func (r *repository) GetByProviderAndProviderSubscriptionID(ctx context.Context, provider, providerSubscriptionID string) (*models.OrganizationBillingAccount, error) {
+	return r.repo.Get(ctx, squirrel.Eq{
 		"provider":                 provider,
 		"provider_subscription_id": providerSubscriptionID,
 	}, nil)
 }
 
-func (r *organizationBillingAccountsRepository) ListOrganizationBillingAccountsWithScheduledPlanChangeDue(ctx context.Context) (*[]models.OrganizationBillingAccount, error) {
+func (r *repository) ListWithScheduledPlanChangeDue(ctx context.Context) (*[]models.OrganizationBillingAccount, error) {
 	now := time.Now()
-	return r.billingAccountsRepo.Select(ctx, squirrel.And{
-		squirrel.NotEq{"subscription_scheduled_plan_price_id": nil},
+	return r.repo.Select(ctx, squirrel.And{
 		squirrel.NotEq{"subscription_scheduled_plan_price_id": ""},
-		squirrel.NotEq{"provider_subscription_id": nil},
 		squirrel.NotEq{"provider_subscription_id": ""},
 		squirrel.LtOrEq{"subscription_expires_at": now},
 	}, nil, "")
@@ -141,13 +131,4 @@ func organizationBillingAccountSubscriptionFields(account *models.OrganizationBi
 		"subscription_in_trial":                account.SubscriptionInTrial,
 		"subscription_scheduled_plan_price_id": account.SubscriptionScheduledPlanPriceID,
 	}
-}
-
-func organizationBillingAccountUpdateFields(account *models.OrganizationBillingAccount) map[string]any {
-	fields := organizationBillingAccountSubscriptionFields(account)
-	fields["billing_email"] = account.BillingEmail
-	fields["provider"] = account.Provider
-	fields["provider_customer_id"] = account.ProviderCustomerID
-	fields["updated_at"] = time.Now()
-	return fields
 }

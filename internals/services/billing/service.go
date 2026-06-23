@@ -56,8 +56,8 @@ type service struct {
 	validator           chi_validator.Validator
 	logger              chi_logger.Logger
 	authorizer          *authz.Authorizer
-	organizationsRepo   organization_repository.OrganizationsRepository
-	billingAccountsRepo billing_account_repository.OrganizationBillingAccountsRepository
+	organizationsRepo   organization_repository.Repository
+	billingAccountsRepo billing_account_repository.Repository
 	paddleCustomer      chi_paddle_customer.CustomerService
 	paddleSubscription  chi_paddle_subscription.SubscriptionService
 	paddleTransaction   chi_paddle_transaction.TransactionService
@@ -98,14 +98,12 @@ func (s *service) customerInput(input *CreateCustomerInput) chi_paddle_customer.
 }
 
 func (s *service) syncSubscriptionExpiry(account *models.OrganizationBillingAccount, paddleSub *paddle.Subscription) {
-	if paddleSub == nil {
-		return
-	}
 	if paddleSub.CurrentBillingPeriod != nil && paddleSub.CurrentBillingPeriod.EndsAt != "" {
 		if t, err := time.Parse(time.RFC3339, paddleSub.CurrentBillingPeriod.EndsAt); err == nil {
 			account.SubscriptionExpiresAt = &t
 		}
 	}
+
 	if account.SubscriptionExpiresAt == nil && paddleSub.NextBilledAt != nil && *paddleSub.NextBilledAt != "" {
 		if t, err := time.Parse(time.RFC3339, *paddleSub.NextBilledAt); err == nil {
 			account.SubscriptionExpiresAt = &t
@@ -115,23 +113,30 @@ func (s *service) syncSubscriptionExpiry(account *models.OrganizationBillingAcco
 
 func (s *service) CreateCustomer(ctx context.Context, input *CreateCustomerInput) (string, error) {
 	if s.paddleCustomer == nil {
-		return "", chi_error.NewInternalServerError(errors.New("paddle not configured"), "InternalServerError", nil)
+		return "", chi_error.NewServiceUnavailableError(errors.New("paddle not configured"), "ServiceUnavailable", nil)
 	}
+
 	customer, err := s.paddleCustomer.CreateCustomer(ctx, s.customerInput(input))
 	if err != nil {
 		return "", err
 	}
+
 	if customer == nil || customer.ID == "" {
 		return "", chi_error.NewInternalServerError(errors.New("paddle customer missing id"), "InternalServerError", nil)
 	}
+
 	return customer.ID, nil
 }
 
 func (s *service) UpdateCustomer(ctx context.Context, input *UpdateCustomerInput) error {
-	if s.paddleCustomer == nil || input.BillingAccount == nil || input.BillingAccount.ProviderCustomerID == "" {
+	if input.BillingAccount == nil || input.BillingAccount.ProviderCustomerID == "" {
 		return nil
 	}
-	createInput := &CreateCustomerInput{
+	if s.paddleCustomer == nil {
+		return nil
+	}
+
+	_, err := s.paddleCustomer.UpdateCustomer(ctx, input.BillingAccount.ProviderCustomerID, s.customerInput(&CreateCustomerInput{
 		OrganizationID:   input.OrganizationID,
 		OrganizationName: input.OrganizationName,
 		BillingEmail:     input.BillingAccount.BillingEmail,
@@ -140,51 +145,57 @@ func (s *service) UpdateCustomer(ctx context.Context, input *UpdateCustomerInput
 		Zip:              input.Zip,
 		Country:          input.Country,
 		Timezone:         input.Timezone,
-	}
-	_, err := s.paddleCustomer.UpdateCustomer(ctx, input.BillingAccount.ProviderCustomerID, s.customerInput(createInput))
+	}))
+
 	return err
 }
 
 func (s *service) ReleaseProvisionedCustomer(ctx context.Context, organizationID string, billingAccount *models.OrganizationBillingAccount) error {
-	if s.paddleCustomer == nil || billingAccount == nil || billingAccount.ProviderCustomerID == "" {
+	if billingAccount == nil || billingAccount.ProviderCustomerID == "" {
 		return nil
 	}
-	if s.getPaddleCustomer != nil {
-		customer, err := s.getPaddleCustomer(ctx, billingAccount.ProviderCustomerID)
-		if err != nil {
-			s.logger.WithContext(ctx).Error("failed to load paddle customer for release", "error", err, "organizationId", organizationID, "paddleCustomerId", billingAccount.ProviderCustomerID)
-			return err
-		}
-		if customer.CustomData == nil || customer.CustomData["organization_id"] != organizationID {
-			return nil
-		}
+
+	customer, err := s.getPaddleCustomer(ctx, billingAccount.ProviderCustomerID)
+	if err != nil {
+		s.logger.WithContext(ctx).Error("failed to load paddle customer for release", "error", err, "organizationId", organizationID, "paddleCustomerId", billingAccount.ProviderCustomerID)
+		return err
 	}
+
+	if customer.CustomData == nil || customer.CustomData["organization_id"] != organizationID {
+		return nil
+	}
+
 	if err := s.paddleCustomer.ArchiveCustomer(ctx, billingAccount.ProviderCustomerID); err != nil {
 		s.logger.WithContext(ctx).Error("failed to archive paddle customer after org provision rollback", "error", err, "organizationId", organizationID, "paddleCustomerId", billingAccount.ProviderCustomerID)
 		return err
 	}
+
 	return nil
 }
 
 func (s *service) CancelSubscription(ctx context.Context, providerSubscriptionID string) error {
-	if s.paddleSubscription == nil || providerSubscriptionID == "" {
+	if providerSubscriptionID == "" {
 		return nil
 	}
+
 	_, err := s.paddleSubscription.CancelSubscription(ctx, providerSubscriptionID)
 	if err != nil {
 		s.logger.WithContext(ctx).Error("failed to cancel paddle subscription", "error", err, "paddleSubscriptionId", providerSubscriptionID)
 	}
+
 	return err
 }
 
 func (s *service) loadBillingAccount(ctx context.Context, organizationID string) (*models.OrganizationBillingAccount, error) {
-	account, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, organizationID)
+	account, err := s.billingAccountsRepo.GetByOrganizationID(ctx, organizationID)
 	if err != nil {
 		return nil, err
 	}
+
 	if account.ProviderCustomerID == "" {
 		return nil, chi_error.NewInternalServerError(errors.New("organization without paddle customer"), "InternalServerError", nil)
 	}
+
 	return account, nil
 }
 
@@ -192,10 +203,8 @@ func (s *service) CreateCheckoutSession(ctx context.Context, req *CreateCheckout
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
+
 	if err := s.authorizer.CheckOrganizationPermission(access, req.OrganizationID, constants.PERMISSION_SUBSCRIPTION_WRITE); err != nil {
-		return nil, err
-	}
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
 		return nil, err
 	}
 
@@ -208,6 +217,7 @@ func (s *service) CreateCheckoutSession(ctx context.Context, req *CreateCheckout
 	if err != nil {
 		return nil, err
 	}
+
 	return &CheckoutSessionResponse{TransactionID: result.TransactionID}, nil
 }
 
@@ -215,10 +225,8 @@ func (s *service) CreateCustomerPortalSession(ctx context.Context, req *CreateCu
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
+
 	if err := s.authorizer.CheckOrganizationPermission(access, req.OrganizationID, constants.PERMISSION_SUBSCRIPTION_WRITE); err != nil {
-		return nil, err
-	}
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
 		return nil, err
 	}
 
@@ -231,6 +239,7 @@ func (s *service) CreateCustomerPortalSession(ctx context.Context, req *CreateCu
 	if err != nil {
 		return nil, err
 	}
+
 	return &CustomerPortalSessionResponse{PortalURL: result.URL}, nil
 }
 
@@ -238,10 +247,8 @@ func (s *service) ProcessTransaction(ctx context.Context, req *ProcessTransactio
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
+
 	if err := s.authorizer.CheckOrganizationPermission(access, req.OrganizationID, constants.PERMISSION_SUBSCRIPTION_WRITE); err != nil {
-		return nil, err
-	}
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
 		return nil, err
 	}
 
@@ -254,6 +261,7 @@ func (s *service) ProcessTransaction(ctx context.Context, req *ProcessTransactio
 	if err != nil {
 		return nil, err
 	}
+
 	if tx.CustomerID == nil || *tx.CustomerID != billingAccount.ProviderCustomerID {
 		return nil, chi_error.NewForbiddenError(errors.New("transaction customer mismatch"), "Forbidden", nil)
 	}
@@ -273,9 +281,11 @@ func (s *service) ProcessTransaction(ctx context.Context, req *ProcessTransactio
 			break
 		}
 	}
+
 	if ourPriceID == "" {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("transaction is not for this product"), "UnprocessableEntity", nil)
 	}
+
 	if req.PriceID != "" && req.PriceID != ourPriceID {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("transaction price mismatch"), "UnprocessableEntity", nil)
 	}
@@ -283,17 +293,20 @@ func (s *service) ProcessTransaction(ctx context.Context, req *ProcessTransactio
 	if tx.SubscriptionID != nil && *tx.SubscriptionID != "" {
 		billingAccount.ProviderSubscriptionID = *tx.SubscriptionID
 	}
+
 	billingAccount.SubscriptionInTrial = false
 	if tx.BillingPeriod != nil && tx.BillingPeriod.EndsAt != "" {
 		if t, parseErr := time.Parse(time.RFC3339, tx.BillingPeriod.EndsAt); parseErr == nil {
 			billingAccount.SubscriptionExpiresAt = &t
 		}
 	}
+
 	applySubscriptionFromPrice(billingAccount, s.priceCatalog, ourPriceID)
 
-	if err := s.billingAccountsRepo.UpdateOrganizationBillingAccount(ctx, billingAccount); err != nil {
+	if err := s.billingAccountsRepo.Update(ctx, billingAccount); err != nil {
 		return nil, err
 	}
+
 	return billingAccount, nil
 }
 
@@ -301,17 +314,16 @@ func (s *service) ChangePlan(ctx context.Context, req *ChangePlanRequest, access
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
+
 	if err := s.authorizer.CheckOrganizationPermission(access, req.OrganizationID, constants.PERMISSION_SUBSCRIPTION_WRITE); err != nil {
 		return nil, err
 	}
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return nil, err
-	}
 
-	account, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	account, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
+
 	if account.ProviderSubscriptionID == "" {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("organization has no paddle subscription"), "UnprocessableEntity", nil)
 	}
@@ -329,15 +341,17 @@ func (s *service) ChangePlan(ctx context.Context, req *ChangePlanRequest, access
 	sameTierAnnualToMonthly := targetTier == currentTier &&
 		targetInterval == constants.PAYMENT_INTERVAL_MONTHLY && currentInterval == constants.PAYMENT_INTERVAL_ANNUAL
 	if tierDowngrade || sameTierAnnualToMonthly {
-		account.SubscriptionScheduledPlanPriceID = &req.PlanID
-		if err := s.billingAccountsRepo.UpdateOrganizationBillingAccount(ctx, account); err != nil {
+		account.SubscriptionScheduledPlanPriceID = req.PlanID
+		if err := s.billingAccountsRepo.Update(ctx, account); err != nil {
 			return nil, err
 		}
+
 		s.auditSubscriptionChange(ctx, req.OrganizationID, access, currentTier, currentInterval, targetTier, targetInterval, constants.PLAN_EFFECTIVE_NEXT_BILLING_PERIOD)
+
 		return &ChangePlanResponse{BillingAccount: account, EffectiveAt: constants.PLAN_EFFECTIVE_NEXT_BILLING_PERIOD}, nil
 	}
 
-	account.SubscriptionScheduledPlanPriceID = nil
+	account.SubscriptionScheduledPlanPriceID = ""
 	paddleSub, err := s.paddleSubscription.UpdateSubscriptionItems(ctx, account.ProviderSubscriptionID, req.PlanID)
 	if err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(err, "SubscriptionChangeFailed", nil)
@@ -345,10 +359,13 @@ func (s *service) ChangePlan(ctx context.Context, req *ChangePlanRequest, access
 
 	applySubscriptionFromPrice(account, s.priceCatalog, req.PlanID)
 	s.syncSubscriptionExpiry(account, paddleSub)
-	if err := s.billingAccountsRepo.UpdateOrganizationBillingAccount(ctx, account); err != nil {
+
+	if err := s.billingAccountsRepo.Update(ctx, account); err != nil {
 		return nil, err
 	}
+
 	s.auditSubscriptionChange(ctx, req.OrganizationID, access, currentTier, currentInterval, targetTier, targetInterval, constants.PLAN_EFFECTIVE_IMMEDIATELY)
+
 	return &ChangePlanResponse{BillingAccount: account, EffectiveAt: constants.PLAN_EFFECTIVE_IMMEDIATELY}, nil
 }
 
@@ -401,7 +418,7 @@ func (s *service) handleSubscriptionUpdate(ctx context.Context, data map[string]
 		return nil
 	}
 
-	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByProviderAndProviderCustomerID(ctx, constants.BILLING_PROVIDER_PADDLE, customerID)
+	billingAccount, err := s.billingAccountsRepo.GetByProviderAndProviderCustomerID(ctx, constants.BILLING_PROVIDER_PADDLE, customerID)
 	if err != nil {
 		if webhookNotRelevant(err) {
 			return nil
@@ -419,6 +436,7 @@ func (s *service) handleSubscriptionUpdate(ctx context.Context, data map[string]
 	} else {
 		billingAccount.SubscriptionInTrial = false
 	}
+
 	if applyPlan {
 		applySubscriptionFromPrice(billingAccount, s.priceCatalog, ourPriceID)
 	}
@@ -435,7 +453,7 @@ func (s *service) handleSubscriptionUpdate(ctx context.Context, data map[string]
 		}
 	}
 
-	return s.billingAccountsRepo.UpdateOrganizationBillingAccount(ctx, billingAccount)
+	return s.billingAccountsRepo.Update(ctx, billingAccount)
 }
 
 func (s *service) handleSubscriptionCanceled(ctx context.Context, data map[string]any) error {
@@ -449,7 +467,7 @@ func (s *service) handleSubscriptionCanceled(ctx context.Context, data map[strin
 		return chi_error.NewUnprocessableEntityError(errors.New("missing customer id"), "MissingPaddleCustomerID", nil)
 	}
 
-	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByProviderAndProviderCustomerID(ctx, constants.BILLING_PROVIDER_PADDLE, customerID)
+	billingAccount, err := s.billingAccountsRepo.GetByProviderAndProviderCustomerID(ctx, constants.BILLING_PROVIDER_PADDLE, customerID)
 	if err != nil {
 		if webhookNotRelevant(err) {
 			return nil
@@ -480,7 +498,7 @@ func (s *service) handleSubscriptionCanceled(ctx context.Context, data map[strin
 		}
 	}
 
-	return s.billingAccountsRepo.UpdateOrganizationBillingAccount(ctx, billingAccount)
+	return s.billingAccountsRepo.Update(ctx, billingAccount)
 }
 
 func (s *service) handleTransactionCompleted(ctx context.Context, data map[string]any) error {
@@ -503,7 +521,7 @@ func (s *service) handleTransactionCompleted(ctx context.Context, data map[strin
 		return nil
 	}
 
-	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByProviderAndProviderCustomerID(ctx, constants.BILLING_PROVIDER_PADDLE, customerID)
+	billingAccount, err := s.billingAccountsRepo.GetByProviderAndProviderCustomerID(ctx, constants.BILLING_PROVIDER_PADDLE, customerID)
 	if err != nil {
 		if webhookNotRelevant(err) {
 			return nil
@@ -515,6 +533,7 @@ func (s *service) handleTransactionCompleted(ctx context.Context, data map[strin
 		billingAccount.ProviderSubscriptionID = subscriptionID
 	}
 	billingAccount.SubscriptionInTrial = false
+
 	applySubscriptionFromPrice(billingAccount, s.priceCatalog, ourPriceID)
 
 	if billingPeriod, ok := transactionData["billing_period"].(map[string]any); ok {
@@ -525,11 +544,11 @@ func (s *service) handleTransactionCompleted(ctx context.Context, data map[strin
 		}
 	}
 
-	return s.billingAccountsRepo.UpdateOrganizationBillingAccount(ctx, billingAccount)
+	return s.billingAccountsRepo.Update(ctx, billingAccount)
 }
 
 func (s *service) ApplyScheduledPlanChanges(ctx context.Context) error {
-	accounts, err := s.billingAccountsRepo.ListOrganizationBillingAccountsWithScheduledPlanChangeDue(ctx)
+	accounts, err := s.billingAccountsRepo.ListWithScheduledPlanChangeDue(ctx)
 	if err != nil {
 		return err
 	}
@@ -538,20 +557,22 @@ func (s *service) ApplyScheduledPlanChanges(ctx context.Context) error {
 	}
 
 	for _, account := range *accounts {
-		if account.SubscriptionScheduledPlanPriceID == nil || *account.SubscriptionScheduledPlanPriceID == "" || account.ProviderSubscriptionID == "" {
+		if account.SubscriptionScheduledPlanPriceID == "" || account.ProviderSubscriptionID == "" {
 			continue
 		}
-		planID := *account.SubscriptionScheduledPlanPriceID
+
+		planID := account.SubscriptionScheduledPlanPriceID
 		paddleSub, err := s.paddleSubscription.UpdateSubscriptionItems(ctx, account.ProviderSubscriptionID, planID)
 		if err != nil {
 			s.logger.WithContext(ctx).Error("apply scheduled plan: paddle update failed", "error", err, "organizationId", account.OrganizationID.String())
 			continue
 		}
 
-		account.SubscriptionScheduledPlanPriceID = nil
+		account.SubscriptionScheduledPlanPriceID = ""
 		applySubscriptionFromPrice(&account, s.priceCatalog, planID)
 		s.syncSubscriptionExpiry(&account, paddleSub)
-		if err := s.billingAccountsRepo.UpdateOrganizationBillingAccount(ctx, &account); err != nil {
+
+		if err := s.billingAccountsRepo.Update(ctx, &account); err != nil {
 			s.logger.WithContext(ctx).Error("apply scheduled plan: billing account update failed", "error", err, "organizationId", account.OrganizationID.String())
 		}
 	}
@@ -571,7 +592,7 @@ func (s *service) auditSubscriptionChange(ctx context.Context, organizationID st
 		},
 	))
 	raw := json.RawMessage(data)
-	if _, err := s.auditService.CreateAuditLog(ctx, &audit_service.CreateAuditLogRequest{
+	if _, err := s.auditService.Create(ctx, &audit_service.CreateRequest{
 		OrganizationID: organizationID,
 		Action:         constants.AUDIT_ACTION_TYPE_UPDATE,
 		ResourceType:   constants.RESOURCE_TYPE_SUBSCRIPTION,

@@ -40,30 +40,30 @@ func TestMain(m *testing.M) {
 	os.Exit(testutil.IntegrationTestMain(m))
 }
 
-func TestTeamMembersRepositorySuite(t *testing.T) {
-	suite.Run(t, new(TeamMembersRepositorySuite))
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(RepositorySuite))
 }
 
-type TeamMembersRepositorySuite struct {
+type RepositorySuite struct {
 	suite.Suite
 
 	db   *sqlx.DB
-	repo team_member_repository.TeamMembersRepository
+	repo team_member_repository.Repository
 	ctx  context.Context
 }
 
-func (s *TeamMembersRepositorySuite) SetupSuite() {
+func (s *RepositorySuite) SetupSuite() {
 	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
 	s.Require().NoError(err)
 
-	s.repo = team_member_repository.NewTeamMembersRepository(s.db, nil)
+	s.repo = team_member_repository.NewRepository(s.db, nil)
 	s.ctx = context.Background()
 }
 
-func (s *TeamMembersRepositorySuite) SetupTest() {
+func (s *RepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
 INSERT INTO users (
 	id, created_at, deleted_at, first_name, last_name, language, email, password
@@ -71,8 +71,8 @@ INSERT INTO users (
 	'11111111-1111-1111-1111-111111111201', '2024-01-01T00:00:00Z', NULL, 'Team', 'User', 'en',
 	'team-user@example.com', 'hash'
 );
-INSERT INTO organizations (id, created_at, deleted_at, name) VALUES (
-	'22222222-2222-2222-2222-222222222201', '2024-01-01T00:00:00Z', NULL, 'Teams Org'
+INSERT INTO organizations (id, created_at, deleted_at, name, address, city, zip, country, place_id, geo, timezone) VALUES (
+	'22222222-2222-2222-2222-222222222201', '2024-01-01T00:00:00Z', NULL, 'Teams Org', '1 Main St', 'Oslo', '0001', 'NO', 'place_seed_team', ST_SetSRID(ST_MakePoint(10.7, 59.9), 4326), 'Europe/Oslo'
 );
 INSERT INTO teams (id, created_at, organization_id, name, description) VALUES
 	('55555555-5555-5555-5555-555555555201', '2024-01-01T00:00:00Z', '22222222-2222-2222-2222-222222222201', 'Active Team', 'Active'),
@@ -84,12 +84,12 @@ INSERT INTO team_members (id, created_at, organization_id, team_id, user_id) VAL
 	s.Require().NoError(err)
 }
 
-func (s *TeamMembersRepositorySuite) TearDownTest() {
+func (s *RepositorySuite) TearDownTest() {
 	_, err := s.db.ExecContext(s.ctx, `TRUNCATE TABLE team_members, teams, organizations, users CASCADE`)
 	s.Require().NoError(err)
 }
 
-func (s *TeamMembersRepositorySuite) TestCreateTeamMember() {
+func (s *RepositorySuite) TestCreate() {
 	member := &models.TeamMember{
 		ModelBase: chi_types.ModelBase{
 			ID:        uuid.MustParse(seedTeamsNewMemberID),
@@ -99,48 +99,48 @@ func (s *TeamMembersRepositorySuite) TestCreateTeamMember() {
 		TeamID:         uuid.MustParse(seedTeamsDeleteID),
 		UserID:         uuid.MustParse(seedTeamsUserID),
 	}
-	s.Require().NoError(s.repo.CreateTeamMember(s.ctx, member))
+	s.Require().NoError(s.repo.Create(s.ctx, member))
 
-	got, err := s.repo.GetTeamMemberByID(s.ctx, seedTeamsOrgID, seedTeamsNewMemberID)
+	got, err := s.repo.GetByID(s.ctx, seedTeamsOrgID, seedTeamsNewMemberID)
 	s.Require().NoError(err)
 	s.Equal(seedTeamsUserID, got.UserID.String())
 }
 
-func (s *TeamMembersRepositorySuite) TestGetTeamMemberByIDWithUser() {
-	got, err := s.repo.GetTeamMemberByIDWithUser(s.ctx, seedTeamsOrgID, seedTeamsMemberID)
+func (s *RepositorySuite) TestGetByIDWithUser() {
+	got, err := s.repo.GetByIDWithUser(s.ctx, seedTeamsOrgID, seedTeamsMemberID)
 	s.Require().NoError(err)
 	s.Equal("team-user@example.com", got.UserEmail)
 }
 
-func (s *TeamMembersRepositorySuite) TestListTeamMembersByTeamID() {
-	activeRows, err := s.repo.ListTeamMembersByTeamID(s.ctx, seedTeamsOrgID, seedTeamsActiveID)
+func (s *RepositorySuite) TestListByTeamID() {
+	activeRows, err := s.repo.ListByTeamID(s.ctx, seedTeamsOrgID, seedTeamsActiveID)
 	s.Require().NoError(err)
 	s.Len(*activeRows, 1)
 
-	updateRows, err := s.repo.ListTeamMembersByTeamID(s.ctx, seedTeamsOrgID, seedTeamsUpdateID)
+	updateRows, err := s.repo.ListByTeamID(s.ctx, seedTeamsOrgID, seedTeamsUpdateID)
 	s.Require().NoError(err)
 	s.Len(*updateRows, 1)
 }
 
-func (s *TeamMembersRepositorySuite) TestListTeamMembersByUserID() {
-	rows, err := s.repo.ListTeamMembersByUserID(s.ctx, seedTeamsUserID)
+func (s *RepositorySuite) TestListByUserID() {
+	rows, err := s.repo.ListByUserID(s.ctx, seedTeamsUserID)
 	s.Require().NoError(err)
 	s.GreaterOrEqual(len(*rows), 2)
 }
 
-func (s *TeamMembersRepositorySuite) TestListTeamMembersByOrganizationID() {
-	rows, err := s.repo.ListTeamMembersByOrganizationID(s.ctx, seedTeamsOrgID)
+func (s *RepositorySuite) TestListByOrganizationID() {
+	rows, err := s.repo.ListByOrganizationID(s.ctx, seedTeamsOrgID)
 	s.Require().NoError(err)
 	s.GreaterOrEqual(len(*rows), 2)
 }
 
-func (s *TeamMembersRepositorySuite) TestDeleteTeamMember() {
-	s.Require().NoError(s.repo.DeleteTeamMember(s.ctx, seedTeamsOrgID, seedTeamsDeleteMember))
-	_, err := s.repo.GetTeamMemberByID(s.ctx, seedTeamsOrgID, seedTeamsDeleteMember)
+func (s *RepositorySuite) TestDelete() {
+	s.Require().NoError(s.repo.Delete(s.ctx, seedTeamsOrgID, seedTeamsDeleteMember))
+	_, err := s.repo.GetByID(s.ctx, seedTeamsOrgID, seedTeamsDeleteMember)
 	s.requireNotFound(err)
 }
 
-func (s *TeamMembersRepositorySuite) TestWithTx() {
+func (s *RepositorySuite) TestWithTx() {
 	member := &models.TeamMember{
 		ModelBase: chi_types.ModelBase{
 			ID:        uuid.MustParse(seedTeamsTxMemberID),
@@ -151,16 +151,16 @@ func (s *TeamMembersRepositorySuite) TestWithTx() {
 		UserID:         uuid.MustParse(seedTeamsUserID),
 	}
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
-		return s.repo.WithTx(tx).CreateTeamMember(s.ctx, member)
+		return s.repo.WithTx(tx).Create(s.ctx, member)
 	})
 	s.Require().NoError(err)
 
-	got, err := s.repo.GetTeamMemberByID(s.ctx, seedTeamsOrgID, seedTeamsTxMemberID)
+	got, err := s.repo.GetByID(s.ctx, seedTeamsOrgID, seedTeamsTxMemberID)
 	s.Require().NoError(err)
 	s.Equal(seedTeamsUserID, got.UserID.String())
 }
 
-func (s *TeamMembersRepositorySuite) requireNotFound(err error) {
+func (s *RepositorySuite) requireNotFound(err error) {
 	s.T().Helper()
 	s.Require().Error(err)
 	var apiErr *chi_error.Error

@@ -4,18 +4,16 @@
  * Organization Billing Accounts
  */
 CREATE TABLE IF NOT EXISTS organization_billing_accounts (
-  id UUID PRIMARY KEY,
+  organization_id UUID PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   
-  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-
   billing_email CITEXT NOT NULL,
 
   provider VARCHAR(10) NOT NULL,
   provider_customer_id VARCHAR(255) NOT NULL,
 
-  provider_subscription_id VARCHAR(255),
+  provider_subscription_id VARCHAR(255) NOT NULL DEFAULT '',
 
   subscription_expires_at TIMESTAMP WITH TIME ZONE,
   subscription_payment_interval VARCHAR(10) NOT NULL DEFAULT 'monthly', -- monthly, annual
@@ -23,7 +21,7 @@ CREATE TABLE IF NOT EXISTS organization_billing_accounts (
   subscription_seats INT NOT NULL DEFAULT 1,
   subscription_in_trial BOOLEAN NOT NULL DEFAULT FALSE,
   
-  subscription_scheduled_plan_price_id VARCHAR(255)
+  subscription_scheduled_plan_price_id VARCHAR(255) NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_organization_billing_accounts_provider_customer_id 
   ON organization_billing_accounts(provider, provider_customer_id);

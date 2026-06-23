@@ -12,6 +12,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
+	"github.com/yca-software/2chi-go-api/internals/packages/authz"
+	platform_i18n "github.com/yca-software/2chi-go-api/internals/packages/i18n"
+	platform_subscription "github.com/yca-software/2chi-go-api/internals/packages/subscription"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
 	invitation_repository "github.com/yca-software/2chi-go-api/internals/repositories/invitation"
@@ -19,8 +22,6 @@ import (
 	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
 	role_repository "github.com/yca-software/2chi-go-api/internals/repositories/role"
 	user_repository "github.com/yca-software/2chi-go-api/internals/repositories/user"
-	"github.com/yca-software/2chi-go-api/internals/packages/authz"
-	platform_subscription "github.com/yca-software/2chi-go-api/internals/packages/subscription"
 	chi_aws_ses "github.com/yca-software/2chi-go-aws/ses"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_localizer "github.com/yca-software/2chi-go-localizer"
@@ -50,10 +51,10 @@ type Dependencies struct {
 }
 
 type Service interface {
-	CreateInvitation(ctx context.Context, req *CreateInvitationRequest, access *chi_types.AccessInfo) (*CreateInvitationResponse, error)
-	RevokeInvitation(ctx context.Context, req *RevokeInvitationRequest, access *chi_types.AccessInfo) error
-	ListInvitations(ctx context.Context, req *ListInvitationsRequest, access *chi_types.AccessInfo) (*[]models.Invitation, error)
-	CleanupStaleInvitations(ctx context.Context) error
+	Create(ctx context.Context, req *CreateRequest, access *chi_types.AccessInfo) (*CreateResponse, error)
+	Revoke(ctx context.Context, req *RevokeRequest, access *chi_types.AccessInfo) error
+	List(ctx context.Context, req *ListRequest, access *chi_types.AccessInfo) (*[]models.Invitation, error)
+	CleanupStale(ctx context.Context) error
 }
 
 type service struct {
@@ -67,12 +68,12 @@ type service struct {
 	hashToken               func(token string) string
 	authorizer              *authz.Authorizer
 	runInTx                 repositories.TxRunner
-	invitationsRepo         invitation_repository.InvitationsRepository
-	orgsRepo                organization_repository.OrganizationsRepository
-	billingAccountsRepo     billing_account_repository.OrganizationBillingAccountsRepository
-	organizationMembersRepo organization_member_repository.OrganizationMembersRepository
-	usersRepo               user_repository.UsersRepository
-	rolesRepo               role_repository.RolesRepository
+	invitationsRepo         invitation_repository.Repository
+	orgsRepo                organization_repository.Repository
+	billingAccountsRepo     billing_account_repository.Repository
+	organizationMembersRepo organization_member_repository.Repository
+	usersRepo               user_repository.Repository
+	rolesRepo               role_repository.Repository
 	sessionCache            *authz.SessionCache
 	localizer               chi_localizer.Localizer
 	emailSender             chi_aws_ses.SES
@@ -112,12 +113,12 @@ func New(deps Dependencies) Service {
 	}
 }
 
-func (s *service) CreateInvitation(ctx context.Context, req *CreateInvitationRequest, access *chi_types.AccessInfo) (*CreateInvitationResponse, error) {
+func (s *service) Create(ctx context.Context, req *CreateRequest, access *chi_types.AccessInfo) (*CreateResponse, error) {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	org, err := s.orgsRepo.GetOrganizationByID(ctx, req.OrganizationID)
+	org, err := s.orgsRepo.GetByID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +127,7 @@ func (s *service) CreateInvitation(ctx context.Context, req *CreateInvitationReq
 		return nil, err
 	}
 
-	role, err := s.rolesRepo.GetRoleByID(ctx, req.OrganizationID, req.RoleID)
+	role, err := s.rolesRepo.GetByID(ctx, req.OrganizationID, req.RoleID)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +137,7 @@ func (s *service) CreateInvitation(ctx context.Context, req *CreateInvitationReq
 	}
 
 	emailLower := strings.ToLower(req.Email)
-	existingUser, userErr := s.usersRepo.GetUserByEmail(ctx, emailLower)
+	existingUser, userErr := s.usersRepo.GetByEmail(ctx, emailLower)
 	if userErr != nil {
 		if apiErr, ok := userErr.(*chi_error.Error); !ok || apiErr.StatusCode != http.StatusNotFound {
 			return nil, userErr
@@ -153,16 +154,18 @@ func (s *service) CreateInvitation(ctx context.Context, req *CreateInvitationReq
 			if listErr != nil {
 				return listErr
 			}
+
 			for _, member := range *members {
 				if member.UserID == existingUser.ID {
 					return chi_error.NewConflictError(errors.New("user is already a member"), "UserAlreadyMember", nil)
 				}
 			}
 
-			billingAccount, billingErr := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+			billingAccount, billingErr := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 			if billingErr != nil {
 				return billingErr
 			}
+
 			if platform_subscription.OrganizationAtSeatLimit(len(*members), billingAccount.SubscriptionSeats) {
 				return chi_error.NewForbiddenError(errors.New("organization seats limit reached"), "OrganizationSeatsLimit", nil)
 			}
@@ -174,20 +177,19 @@ func (s *service) CreateInvitation(ctx context.Context, req *CreateInvitationReq
 
 			member := &models.OrganizationMember{
 				ModelBase: chi_types.ModelBase{
-					ID:        memberID,
-					CreatedAt: now,
+					ID: memberID,
 				},
 				OrganizationID: org.ID,
 				UserID:         existingUser.ID,
 				RoleID:         role.ID,
 			}
 
-			if err := membersRepo.CreateOrganizationMember(ctx, member); err != nil {
+			if err := membersRepo.Create(ctx, member); err != nil {
 				return err
 			}
 
 			var fetchErr error
-			memberWithUser, fetchErr = membersRepo.GetOrganizationMemberByMembershipIDWithUser(ctx, org.ID.String(), member.ID.String())
+			memberWithUser, fetchErr = membersRepo.GetByMemberIDWithUser(ctx, org.ID.String(), member.ID.String())
 			return fetchErr
 		}); txErr != nil {
 			return nil, txErr
@@ -197,7 +199,7 @@ func (s *service) CreateInvitation(ctx context.Context, req *CreateInvitationReq
 			s.logger.WithContext(ctx).Error("failed to invalidate session", "error", err, "organizationId", org.ID.String())
 		}
 
-		return &CreateInvitationResponse{Member: memberWithUser}, nil
+		return &CreateResponse{Member: memberWithUser}, nil
 	}
 
 	invitationID, err := s.generateID()
@@ -217,8 +219,7 @@ func (s *service) CreateInvitation(ctx context.Context, req *CreateInvitationReq
 
 	invitation := &models.Invitation{
 		ModelBase: chi_types.ModelBase{
-			ID:        invitationID,
-			CreatedAt: now,
+			ID: invitationID,
 		},
 		ExpiresAt:      now.Add(s.invitationTTL),
 		OrganizationID: org.ID,
@@ -229,7 +230,7 @@ func (s *service) CreateInvitation(ctx context.Context, req *CreateInvitationReq
 		TokenHash:      s.hashToken(inviteToken),
 	}
 
-	if err := s.invitationsRepo.CreateInvitation(ctx, invitation); err != nil {
+	if err := s.invitationsRepo.Create(ctx, invitation); err != nil {
 		return nil, err
 	}
 
@@ -237,19 +238,15 @@ func (s *service) CreateInvitation(ctx context.Context, req *CreateInvitationReq
 		return nil, err
 	}
 
-	return &CreateInvitationResponse{Invitation: invitation}, nil
+	return &CreateResponse{Invitation: invitation}, nil
 }
 
-func (s *service) RevokeInvitation(ctx context.Context, req *RevokeInvitationRequest, access *chi_types.AccessInfo) error {
+func (s *service) Revoke(ctx context.Context, req *RevokeRequest, access *chi_types.AccessInfo) error {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.orgsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return err
-	}
-
-	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billingAccount, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -258,7 +255,7 @@ func (s *service) RevokeInvitation(ctx context.Context, req *RevokeInvitationReq
 		return err
 	}
 
-	invitation, err := s.invitationsRepo.GetInvitationByID(ctx, req.OrganizationID, req.InvitationID)
+	invitation, err := s.invitationsRepo.GetByID(ctx, req.OrganizationID, req.InvitationID)
 	if err != nil {
 		return err
 	}
@@ -275,31 +272,27 @@ func (s *service) RevokeInvitation(ctx context.Context, req *RevokeInvitationReq
 
 	now := s.now()
 	invitation.RevokedAt = &now
-	return s.invitationsRepo.UpdateInvitation(ctx, invitation)
+	return s.invitationsRepo.Update(ctx, invitation)
 }
 
-func (s *service) ListInvitations(ctx context.Context, req *ListInvitationsRequest, access *chi_types.AccessInfo) (*[]models.Invitation, error) {
+func (s *service) List(ctx context.Context, req *ListRequest, access *chi_types.AccessInfo) (*[]models.Invitation, error) {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
-	}
-
-	if _, err := s.orgsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return nil, err
 	}
 
 	if err := s.authorizer.CheckOrganizationPermission(access, req.OrganizationID, constants.PERMISSION_MEMBERS_READ); err != nil {
 		return nil, err
 	}
 
-	return s.invitationsRepo.ListInvitationsByOrganizationID(ctx, req.OrganizationID)
+	return s.invitationsRepo.ListByOrganizationID(ctx, req.OrganizationID)
 }
 
-func (s *service) CleanupStaleInvitations(ctx context.Context) error {
-	return s.invitationsRepo.CleanupStaleInvitations(ctx)
+func (s *service) CleanupStale(ctx context.Context) error {
+	return s.invitationsRepo.CleanupStale(ctx)
 }
 
 func (s *service) checkCreateInvitationPermission(ctx context.Context, access *chi_types.AccessInfo, organizationID string) error {
-	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, organizationID)
+	billingAccount, err := s.billingAccountsRepo.GetByOrganizationID(ctx, organizationID)
 	if err != nil {
 		return err
 	}
@@ -312,6 +305,7 @@ func (s *service) checkCreateInvitationPermission(ctx context.Context, access *c
 	if err != nil {
 		return err
 	}
+
 	if platform_subscription.OrganizationAtSeatLimit(len(*members), billingAccount.SubscriptionSeats) {
 		return chi_error.NewForbiddenError(errors.New("organization seats limit reached"), "OrganizationSeatsLimit", nil)
 	}
@@ -320,36 +314,30 @@ func (s *service) checkCreateInvitationPermission(ctx context.Context, access *c
 }
 
 func (s *service) ensureNoPendingInvitation(ctx context.Context, organizationID, email string) error {
-	invitations, err := s.invitationsRepo.ListInvitationsByOrganizationID(ctx, organizationID)
+	invitations, err := s.invitationsRepo.ListByOrganizationID(ctx, organizationID)
 	if err != nil {
 		return err
 	}
+
 	emailLower := strings.ToLower(email)
 	now := s.now()
 	for _, invitation := range *invitations {
 		if !strings.EqualFold(invitation.Email, emailLower) {
 			continue
 		}
+
 		if invitation.ExpiresAt.Before(now) {
 			continue
 		}
+
 		return chi_error.NewConflictError(errors.New("invitation already pending"), "InvitationAlreadyPending", nil)
 	}
+
 	return nil
 }
 
-func normalizeLanguage(language string) string {
-	lang := strings.ToLower(strings.TrimSpace(language))
-	for _, supported := range constants.SUPPORTED_LANGUAGES {
-		if lang == supported {
-			return lang
-		}
-	}
-	return constants.DEFAULT_LANGUAGE
-}
-
 func (s *service) sendInvitationEmail(ctx context.Context, language, orgName, email, inviteToken string) error {
-	lang := normalizeLanguage(language)
+	lang := platform_i18n.NormalizeLanguage(language)
 	tokenTTLDays := max(1, int(s.invitationTTL.Hours())/24)
 
 	body, err := s.emailTemplates.Render("invitation", map[string]any{

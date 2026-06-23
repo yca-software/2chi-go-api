@@ -26,9 +26,9 @@ type PermissionResolver interface {
 type PermissionResolverDeps struct {
 	SessionCache                    *SessionCache
 	LoadUserAccess                  LoadUserAccessDeps
-	APIKeysRepo                     api_key_repository.APIKeysRepository
-	OrganizationsRepo               organization_repository.OrganizationsRepository
-	OrganizationBillingAccountsRepo billing_account_repository.OrganizationBillingAccountsRepository
+	APIKeysRepo                     api_key_repository.Repository
+	OrganizationsRepo               organization_repository.Repository
+	OrganizationBillingAccountsRepo billing_account_repository.Repository
 	HashToken                       func(token string) string
 	Now                             func() time.Time
 }
@@ -36,9 +36,9 @@ type PermissionResolverDeps struct {
 type permissionResolver struct {
 	sessionCache                    *SessionCache
 	loadUserAccess                  LoadUserAccessDeps
-	apiKeysRepo                     api_key_repository.APIKeysRepository
-	organizationsRepo               organization_repository.OrganizationsRepository
-	organizationBillingAccountsRepo billing_account_repository.OrganizationBillingAccountsRepository
+	apiKeysRepo                     api_key_repository.Repository
+	organizationsRepo               organization_repository.Repository
+	organizationBillingAccountsRepo billing_account_repository.Repository
 	hashToken                       func(token string) string
 	now                             func() time.Time
 }
@@ -92,7 +92,7 @@ func (r *permissionResolver) ResolveAPIKeyAccess(ctx context.Context, plainKey s
 
 	rawKey := strings.TrimPrefix(plainKey, constants.API_KEY_PREFIX)
 
-	apiKey, err := r.apiKeysRepo.GetAPIKeyByHash(ctx, r.hashToken(rawKey))
+	apiKey, err := r.apiKeysRepo.GetByHash(ctx, r.hashToken(rawKey))
 	if err != nil {
 		if e, ok := err.(*chi_error.Error); ok && e.StatusCode == http.StatusNotFound {
 			return nil, chi_error.NewUnauthorizedError(errors.New("invalid api key"), "InvalidApiKey", nil)
@@ -105,7 +105,7 @@ func (r *permissionResolver) ResolveAPIKeyAccess(ctx context.Context, plainKey s
 	}
 
 	if r.organizationsRepo != nil {
-		organization, orgErr := r.organizationsRepo.GetOrganizationByIDIncludeArchived(ctx, apiKey.OrganizationID.String())
+		organization, orgErr := r.organizationsRepo.GetByIDIncludeArchived(ctx, apiKey.OrganizationID.String())
 		if orgErr != nil {
 			return nil, orgErr
 		}
@@ -114,7 +114,7 @@ func (r *permissionResolver) ResolveAPIKeyAccess(ctx context.Context, plainKey s
 		}
 	}
 
-	org, err := r.organizationBillingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, apiKey.OrganizationID.String())
+	org, err := r.organizationBillingAccountsRepo.GetByOrganizationID(ctx, apiKey.OrganizationID.String())
 	if err != nil {
 		return nil, err
 	}

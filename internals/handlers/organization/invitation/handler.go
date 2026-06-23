@@ -38,8 +38,8 @@ func (h *InvitationsHandler) RegisterRoutes(detail *echo.Group, rateLimiter *chi
 // @Accept       json
 // @Produce      json
 // @Param        orgId       path      string                              true  "Organization ID"
-// @Param        invitation  body      invitation_service.CreateInvitationRequest    true  "Invitation request"
-// @Success      201         {object}  invitation_service.CreateInvitationResponse
+// @Param        invitation  body      invitation_service.CreateRequest    true  "Invitation request"
+// @Success      201         {object}  invitation_service.CreateResponse
 // @Failure      400         {object}  error.ErrorResponse
 // @Failure      401         {object}  error.ErrorResponse
 // @Failure      403         {object}  error.ErrorResponse
@@ -59,7 +59,7 @@ func (h *InvitationsHandler) CreateInvitation(c echo.Context) error {
 		return chi_error.NewUnauthorizedError(errors.New("user required"), "Unauthorized", nil)
 	}
 
-	var req invitation_service.CreateInvitationRequest
+	var req invitation_service.CreateRequest
 	if err := c.Bind(&req); err != nil {
 		return chi_error.NewBadRequestError(err, "InvalidRequestBody", nil)
 	}
@@ -68,7 +68,7 @@ func (h *InvitationsHandler) CreateInvitation(c echo.Context) error {
 	req.InvitedByEmail = accessInfo.Email
 	req.Language = platform_http.RequestLanguage(c)
 
-	resp, err := h.invitationsService.CreateInvitation(ctx, &req, accessInfo)
+	resp, err := h.invitationsService.Create(ctx, &req, accessInfo)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (h *InvitationsHandler) ListInvitations(c echo.Context) error {
 		return err
 	}
 
-	invitations, err := h.invitationsService.ListInvitations(ctx, &invitation_service.ListInvitationsRequest{
+	invitations, err := h.invitationsService.List(ctx, &invitation_service.ListRequest{
 		OrganizationID: orgID,
 	}, accessInfo)
 	if err != nil {
@@ -128,7 +128,7 @@ func (h *InvitationsHandler) RevokeInvitation(c echo.Context) error {
 		return err
 	}
 
-	if err := h.invitationsService.RevokeInvitation(ctx, &invitation_service.RevokeInvitationRequest{
+	if err := h.invitationsService.Revoke(ctx, &invitation_service.RevokeRequest{
 		OrganizationID: orgID,
 		InvitationID:   c.Param("invitationId"),
 	}, accessInfo); err != nil {

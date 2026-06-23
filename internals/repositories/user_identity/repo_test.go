@@ -36,30 +36,30 @@ func TestMain(m *testing.M) {
 	os.Exit(testutil.IntegrationTestMain(m))
 }
 
-func TestUserIdentityRepositorySuite(t *testing.T) {
-	suite.Run(t, new(UserIdentityRepositorySuite))
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(RepositorySuite))
 }
 
-type UserIdentityRepositorySuite struct {
+type RepositorySuite struct {
 	suite.Suite
 
 	db   *sqlx.DB
-	repo user_identity_repository.UserIdentityRepository
+	repo user_identity_repository.Repository
 	ctx  context.Context
 }
 
-func (s *UserIdentityRepositorySuite) SetupSuite() {
+func (s *RepositorySuite) SetupSuite() {
 	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
 	s.Require().NoError(err)
 
-	s.repo = user_identity_repository.NewUserIdentityRepository(s.db, nil)
+	s.repo = user_identity_repository.NewRepository(s.db, nil)
 	s.ctx = context.Background()
 }
 
-func (s *UserIdentityRepositorySuite) SetupTest() {
+func (s *RepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
 INSERT INTO users (
 	id, created_at, deleted_at, first_name, last_name, language, email, password
@@ -70,12 +70,12 @@ INSERT INTO user_identities (id, created_at, updated_at, user_id, provider, prov
 	s.Require().NoError(err)
 }
 
-func (s *UserIdentityRepositorySuite) TearDownTest() {
+func (s *RepositorySuite) TearDownTest() {
 	_, err := s.db.ExecContext(s.ctx, `TRUNCATE TABLE users CASCADE`)
 	s.Require().NoError(err)
 }
 
-func (s *UserIdentityRepositorySuite) TestCreateUserIdentity() {
+func (s *RepositorySuite) TestCreate() {
 	identity := &models.UserIdentity{
 		ModelBase: chi_types.ModelBase{
 			ID:        uuid.MustParse("44444444-4444-4444-4444-444444444002"),
@@ -86,44 +86,44 @@ func (s *UserIdentityRepositorySuite) TestCreateUserIdentity() {
 		Provider:       "github",
 		ProviderUserID: "github-user-123",
 	}
-	s.Require().NoError(s.repo.CreateUserIdentity(s.ctx, identity))
+	s.Require().NoError(s.repo.Create(s.ctx, identity))
 
-	got, err := s.repo.GetUserIdentityByProviderAndProviderUserID(s.ctx, "github", "github-user-123")
+	got, err := s.repo.GetByProviderAndProviderUserID(s.ctx, "github", "github-user-123")
 	s.Require().NoError(err)
 	s.Equal("44444444-4444-4444-4444-444444444002", got.ID.String())
 }
 
-func (s *UserIdentityRepositorySuite) TestGetUserIdentityByProviderAndProviderUserID() {
-	got, err := s.repo.GetUserIdentityByProviderAndProviderUserID(s.ctx, seedProvider, seedProviderUserID)
+func (s *RepositorySuite) TestGetByProviderAndProviderUserID() {
+	got, err := s.repo.GetByProviderAndProviderUserID(s.ctx, seedProvider, seedProviderUserID)
 	s.Require().NoError(err)
 	s.Equal(seedIdentityID, got.ID.String())
 }
 
-func (s *UserIdentityRepositorySuite) TestGetUserIdentityByUserIDAndProvider() {
-	got, err := s.repo.GetUserIdentityByUserIDAndProvider(s.ctx, seedUserID, seedProvider)
+func (s *RepositorySuite) TestGetByUserIDAndProvider() {
+	got, err := s.repo.GetByUserIDAndProvider(s.ctx, seedUserID, seedProvider)
 	s.Require().NoError(err)
 	s.Equal(seedProviderUserID, got.ProviderUserID)
 }
 
-func (s *UserIdentityRepositorySuite) TestGetUserIdentityByProviderAndProviderUserID_NotFound() {
-	_, err := s.repo.GetUserIdentityByProviderAndProviderUserID(s.ctx, seedProvider, "missing")
+func (s *RepositorySuite) TestGetByProviderAndProviderUserID_NotFound() {
+	_, err := s.repo.GetByProviderAndProviderUserID(s.ctx, seedProvider, "missing")
 	s.requireNotFound(err)
 }
 
-func (s *UserIdentityRepositorySuite) TestUpdateUserIdentity() {
-	identity, err := s.repo.GetUserIdentityByUserIDAndProvider(s.ctx, seedUserID, seedProvider)
+func (s *RepositorySuite) TestUpdate() {
+	identity, err := s.repo.GetByUserIDAndProvider(s.ctx, seedUserID, seedProvider)
 	s.Require().NoError(err)
 
 	identity.ProviderUserID = seedUpdatedProvider
 	identity.UpdatedAt = seedCreatedAtTime.Add(time.Hour)
-	s.Require().NoError(s.repo.UpdateUserIdentity(s.ctx, identity))
+	s.Require().NoError(s.repo.Update(s.ctx, identity))
 
-	got, err := s.repo.GetUserIdentityByUserIDAndProvider(s.ctx, seedUserID, seedProvider)
+	got, err := s.repo.GetByUserIDAndProvider(s.ctx, seedUserID, seedProvider)
 	s.Require().NoError(err)
 	s.Equal(seedUpdatedProvider, got.ProviderUserID)
 }
 
-func (s *UserIdentityRepositorySuite) TestWithTx() {
+func (s *RepositorySuite) TestWithTx() {
 	identity := &models.UserIdentity{
 		ModelBase: chi_types.ModelBase{
 			ID:        uuid.MustParse("44444444-4444-4444-4444-444444444003"),
@@ -135,16 +135,16 @@ func (s *UserIdentityRepositorySuite) TestWithTx() {
 		ProviderUserID: "linkedin-user-123",
 	}
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
-		return s.repo.WithTx(tx).CreateUserIdentity(s.ctx, identity)
+		return s.repo.WithTx(tx).Create(s.ctx, identity)
 	})
 	s.Require().NoError(err)
 
-	got, err := s.repo.GetUserIdentityByProviderAndProviderUserID(s.ctx, "linkedin", "linkedin-user-123")
+	got, err := s.repo.GetByProviderAndProviderUserID(s.ctx, "linkedin", "linkedin-user-123")
 	s.Require().NoError(err)
 	s.Equal("44444444-4444-4444-4444-444444444003", got.ID.String())
 }
 
-func (s *UserIdentityRepositorySuite) requireNotFound(err error) {
+func (s *RepositorySuite) requireNotFound(err error) {
 	s.T().Helper()
 	s.Require().Error(err)
 	var apiErr *chi_error.Error

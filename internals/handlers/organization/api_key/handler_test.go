@@ -63,7 +63,7 @@ func (s *APIKeysHandlerSuite) withAccess(next echo.HandlerFunc) echo.HandlerFunc
 
 func (s *APIKeysHandlerSuite) TestListAPIKeys_Success() {
 	keys := []models.APIKey{{Name: "CI"}}
-	s.apiKeysService.On("ListAPIKeys", mock.Anything, mock.MatchedBy(func(req *api_key_service.ListAPIKeysRequest) bool {
+	s.apiKeysService.On("List", mock.Anything, mock.MatchedBy(func(req *api_key_service.ListRequest) bool {
 		return req.OrganizationID == testOrgID
 	}), s.userAccess).Return(&keys, nil).Once()
 
@@ -78,9 +78,9 @@ func (s *APIKeysHandlerSuite) TestListAPIKeys_Success() {
 }
 
 func (s *APIKeysHandlerSuite) TestCreateAPIKey_Success() {
-	s.apiKeysService.On("CreateAPIKey", mock.Anything, mock.MatchedBy(func(req *api_key_service.CreateAPIKeyRequest) bool {
+	s.apiKeysService.On("Create", mock.Anything, mock.MatchedBy(func(req *api_key_service.CreateRequest) bool {
 		return req.OrganizationID == testOrgID && req.Name == "CI"
-	}), s.userAccess).Return(&api_key_service.CreateAPIKeyResponse{Secret: "secret"}, nil).Once()
+	}), s.userAccess).Return(&api_key_service.CreateResponse{Secret: "secret"}, nil).Once()
 
 	s.echo.POST("/api/v1/organization/:orgId/api-key", s.handler.CreateAPIKey, s.withAccess)
 
@@ -94,7 +94,7 @@ func (s *APIKeysHandlerSuite) TestCreateAPIKey_Success() {
 }
 
 func (s *APIKeysHandlerSuite) TestDeleteAPIKey_Success() {
-	s.apiKeysService.On("DeleteAPIKey", mock.Anything, mock.MatchedBy(func(req *api_key_service.DeleteAPIKeyRequest) bool {
+	s.apiKeysService.On("Delete", mock.Anything, mock.MatchedBy(func(req *api_key_service.DeleteRequest) bool {
 		return req.OrganizationID == testOrgID && req.APIKeyID == testAPIKeyID
 	}), s.userAccess).Return(nil).Once()
 

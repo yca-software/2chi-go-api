@@ -13,44 +13,44 @@ import (
 )
 
 const (
-	APIKeysTableName = "api_keys"
+	TableName = "api_keys"
 )
 
 var (
-	APIKeysColumns = []string{
+	Columns = []string{
 		"id", "created_at", "updated_at", "organization_id", "expires_at", "name", "key_prefix", "key_hash", "permissions",
 	}
 )
 
-type APIKeysRepository interface {
-	WithTx(tx chi_repository.Tx) APIKeysRepository
+type Repository interface {
+	WithTx(tx chi_repository.Tx) Repository
 
-	CreateAPIKey(ctx context.Context, apiKey *models.APIKey) error
-	UpdateAPIKey(ctx context.Context, apiKey *models.APIKey) error
-	DeleteAPIKey(ctx context.Context, organizationID, id string) error
+	Create(ctx context.Context, apiKey *models.APIKey) error
+	Update(ctx context.Context, apiKey *models.APIKey) error
+	Delete(ctx context.Context, organizationID, id string) error
 
-	GetAPIKeyByID(ctx context.Context, organizationID, id string) (*models.APIKey, error)
-	GetAPIKeyByHash(ctx context.Context, hash string) (*models.APIKey, error)
-	ListAPIKeysByOrganizationID(ctx context.Context, organizationID string) (*[]models.APIKey, error)
+	GetByID(ctx context.Context, organizationID, id string) (*models.APIKey, error)
+	GetByHash(ctx context.Context, hash string) (*models.APIKey, error)
+	ListByOrganizationID(ctx context.Context, organizationID string) (*[]models.APIKey, error)
 }
 
-type apiKeysRepository struct {
-	apiKeysRepo chi_repository.Repository[models.APIKey]
+type repository struct {
+	repo chi_repository.Repository[models.APIKey]
 }
 
-func NewAPIKeysRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) APIKeysRepository {
-	return &apiKeysRepository{
-		apiKeysRepo: chi_repository.NewRepository[models.APIKey](db, APIKeysTableName, APIKeysColumns, metricsHook),
+func NewRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) Repository {
+	return &repository{
+		repo: chi_repository.NewRepository[models.APIKey](db, TableName, Columns, metricsHook),
 	}
 }
 
-func (r *apiKeysRepository) WithTx(tx chi_repository.Tx) APIKeysRepository {
-	return &apiKeysRepository{apiKeysRepo: r.apiKeysRepo.WithTx(tx)}
+func (r *repository) WithTx(tx chi_repository.Tx) Repository {
+	return &repository{repo: r.repo.WithTx(tx)}
 }
 
-func (r *apiKeysRepository) CreateAPIKey(ctx context.Context, apiKey *models.APIKey) error {
+func (r *repository) Create(ctx context.Context, apiKey *models.APIKey) error {
 	now := time.Now()
-	return r.apiKeysRepo.Create(ctx, map[string]any{
+	return r.repo.Create(ctx, map[string]any{
 		"id":              apiKey.ID,
 		"created_at":      now,
 		"updated_at":      now,
@@ -63,8 +63,8 @@ func (r *apiKeysRepository) CreateAPIKey(ctx context.Context, apiKey *models.API
 	})
 }
 
-func (r *apiKeysRepository) UpdateAPIKey(ctx context.Context, apiKey *models.APIKey) error {
-	return r.apiKeysRepo.Update(ctx, squirrel.And{
+func (r *repository) Update(ctx context.Context, apiKey *models.APIKey) error {
+	return r.repo.Update(ctx, squirrel.And{
 		squirrel.Eq{"id": apiKey.ID},
 		squirrel.Eq{"organization_id": apiKey.OrganizationID},
 	}, map[string]any{
@@ -74,24 +74,24 @@ func (r *apiKeysRepository) UpdateAPIKey(ctx context.Context, apiKey *models.API
 	})
 }
 
-func (r *apiKeysRepository) DeleteAPIKey(ctx context.Context, organizationID, id string) error {
-	return r.apiKeysRepo.Delete(ctx, squirrel.And{
+func (r *repository) Delete(ctx context.Context, organizationID, id string) error {
+	return r.repo.Delete(ctx, squirrel.And{
 		squirrel.Eq{"id": id},
 		squirrel.Eq{"organization_id": organizationID},
 	})
 }
 
-func (r *apiKeysRepository) GetAPIKeyByID(ctx context.Context, organizationID, id string) (*models.APIKey, error) {
-	return r.apiKeysRepo.Get(ctx, squirrel.And{
+func (r *repository) GetByID(ctx context.Context, organizationID, id string) (*models.APIKey, error) {
+	return r.repo.Get(ctx, squirrel.And{
 		squirrel.Eq{"id": id},
 		squirrel.Eq{"organization_id": organizationID},
 	}, nil)
 }
 
-func (r *apiKeysRepository) GetAPIKeyByHash(ctx context.Context, hash string) (*models.APIKey, error) {
-	return r.apiKeysRepo.Get(ctx, squirrel.Eq{"key_hash": hash}, nil)
+func (r *repository) GetByHash(ctx context.Context, hash string) (*models.APIKey, error) {
+	return r.repo.Get(ctx, squirrel.Eq{"key_hash": hash}, nil)
 }
 
-func (r *apiKeysRepository) ListAPIKeysByOrganizationID(ctx context.Context, organizationID string) (*[]models.APIKey, error) {
-	return r.apiKeysRepo.Select(ctx, squirrel.Eq{"organization_id": organizationID}, nil, "created_at DESC")
+func (r *repository) ListByOrganizationID(ctx context.Context, organizationID string) (*[]models.APIKey, error) {
+	return r.repo.Select(ctx, squirrel.Eq{"organization_id": organizationID}, nil, "created_at DESC")
 }

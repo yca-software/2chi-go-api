@@ -9,35 +9,35 @@ import (
 	chi_repository "github.com/yca-software/2chi-go-repository"
 )
 
-type MockOrganizationsRepository struct {
+type MockRepository struct {
 	mock.Mock
 }
 
-func (m *MockOrganizationsRepository) WithTx(_ chi_repository.Tx) OrganizationsRepository {
+func (m *MockRepository) WithTx(_ chi_repository.Tx) Repository {
 	return m
 }
 
-func (m *MockOrganizationsRepository) CreateOrganization(ctx context.Context, organization *models.Organization) error {
+func (m *MockRepository) Create(ctx context.Context, organization *models.Organization) error {
 	return m.Called(ctx, organization).Error(0)
 }
 
-func (m *MockOrganizationsRepository) UpdateOrganization(ctx context.Context, organization *models.Organization) error {
+func (m *MockRepository) Update(ctx context.Context, organization *models.Organization) error {
 	return m.Called(ctx, organization).Error(0)
 }
 
-func (m *MockOrganizationsRepository) ArchiveOrganization(ctx context.Context, organization *models.Organization) error {
+func (m *MockRepository) Archive(ctx context.Context, organization *models.Organization) error {
 	return m.Called(ctx, organization).Error(0)
 }
 
-func (m *MockOrganizationsRepository) RestoreOrganization(ctx context.Context, id string) error {
+func (m *MockRepository) Restore(ctx context.Context, id string) error {
 	return m.Called(ctx, id).Error(0)
 }
 
-func (m *MockOrganizationsRepository) CleanupArchivedOrganizations(ctx context.Context) error {
+func (m *MockRepository) CleanupArchived(ctx context.Context) error {
 	return m.Called(ctx).Error(0)
 }
 
-func (m *MockOrganizationsRepository) GetOrganizationByID(ctx context.Context, id string) (*models.Organization, error) {
+func (m *MockRepository) GetByID(ctx context.Context, id string) (*models.Organization, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -45,7 +45,7 @@ func (m *MockOrganizationsRepository) GetOrganizationByID(ctx context.Context, i
 	return args.Get(0).(*models.Organization), args.Error(1)
 }
 
-func (m *MockOrganizationsRepository) GetOrganizationByIDIncludeArchived(ctx context.Context, id string) (*models.Organization, error) {
+func (m *MockRepository) GetByIDIncludeArchived(ctx context.Context, id string) (*models.Organization, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -53,7 +53,7 @@ func (m *MockOrganizationsRepository) GetOrganizationByIDIncludeArchived(ctx con
 	return args.Get(0).(*models.Organization), args.Error(1)
 }
 
-func (m *MockOrganizationsRepository) SearchOrganizations(ctx context.Context, searchPhrase string, filter chi_archive.ArchiveFilter, limit, offset int) (*[]models.Organization, error) {
+func (m *MockRepository) Search(ctx context.Context, searchPhrase string, filter chi_archive.ArchiveFilter, limit, offset int) (*[]models.Organization, error) {
 	args := m.Called(ctx, searchPhrase, filter, limit, offset)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

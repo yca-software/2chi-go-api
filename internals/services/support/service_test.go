@@ -7,8 +7,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
-	support_service "github.com/yca-software/2chi-go-api/internals/services/support"
 	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
+	support_service "github.com/yca-software/2chi-go-api/internals/services/support"
 	chi_aws_ses "github.com/yca-software/2chi-go-aws/ses"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_template "github.com/yca-software/2chi-go-template"
@@ -49,14 +49,14 @@ func (s *SupportServiceSuite) SetupTest() {
 }
 
 func (s *SupportServiceSuite) TestSubmit_Validation_MissingMessage() {
-	err := s.svc.Submit(s.ctx, &support_service.SubmitSupportRequest{
+	err := s.svc.Submit(s.ctx, &support_service.SubmitRequest{
 		Message: "",
 	}, s.access)
 	s.Error(err)
 }
 
 func (s *SupportServiceSuite) TestSubmit_RequiresUserIdentity() {
-	err := s.svc.Submit(s.ctx, &support_service.SubmitSupportRequest{
+	err := s.svc.Submit(s.ctx, &support_service.SubmitRequest{
 		Message: "help",
 	}, &chi_types.AccessInfo{Type: chi_types.AccessTypeAPIKey, SubjectID: uuid.New()})
 	s.Error(err)
@@ -67,14 +67,14 @@ func (s *SupportServiceSuite) TestSubmit_NotConfigured() {
 		Validator: chi_validator.New(),
 		Logger:    s.logger,
 	})
-	err := svc.Submit(s.ctx, &support_service.SubmitSupportRequest{Message: "help"}, s.access)
+	err := svc.Submit(s.ctx, &support_service.SubmitRequest{Message: "help"}, s.access)
 	s.Error(err)
 }
 
 func (s *SupportServiceSuite) TestSubmit_Success() {
 	s.emailSender.On("Send", s.ctx, mock.Anything).Return(nil).Once()
 
-	err := s.svc.Submit(s.ctx, &support_service.SubmitSupportRequest{
+	err := s.svc.Submit(s.ctx, &support_service.SubmitRequest{
 		Subject:   "Billing",
 		Message:   "Need help",
 		PageURL:   "https://app.example.com/settings",

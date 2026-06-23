@@ -37,30 +37,30 @@ func TestMain(m *testing.M) {
 	os.Exit(testutil.IntegrationTestMain(m))
 }
 
-func TestUserPasswordResetTokenRepositorySuite(t *testing.T) {
-	suite.Run(t, new(UserPasswordResetTokenRepositorySuite))
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(RepositorySuite))
 }
 
-type UserPasswordResetTokenRepositorySuite struct {
+type RepositorySuite struct {
 	suite.Suite
 
 	db   *sqlx.DB
-	repo user_password_reset_token_repository.UserPasswordResetTokenRepository
+	repo user_password_reset_token_repository.Repository
 	ctx  context.Context
 }
 
-func (s *UserPasswordResetTokenRepositorySuite) SetupSuite() {
+func (s *RepositorySuite) SetupSuite() {
 	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
 	s.Require().NoError(err)
 
-	s.repo = user_password_reset_token_repository.NewUserPasswordResetTokenRepository(s.db, nil)
+	s.repo = user_password_reset_token_repository.NewRepository(s.db, nil)
 	s.ctx = context.Background()
 }
 
-func (s *UserPasswordResetTokenRepositorySuite) SetupTest() {
+func (s *RepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
 INSERT INTO users (
 	id, created_at, deleted_at, first_name, last_name, language, email, password
@@ -72,12 +72,12 @@ INSERT INTO user_password_reset_tokens (id, user_id, created_at, expires_at, use
 	s.Require().NoError(err)
 }
 
-func (s *UserPasswordResetTokenRepositorySuite) TearDownTest() {
+func (s *RepositorySuite) TearDownTest() {
 	_, err := s.db.ExecContext(s.ctx, `TRUNCATE TABLE users CASCADE`)
 	s.Require().NoError(err)
 }
 
-func (s *UserPasswordResetTokenRepositorySuite) TestCreatePasswordResetToken() {
+func (s *RepositorySuite) TestCreate() {
 	token := &models.UserPasswordResetToken{
 		ModelBase: chi_types.ModelBase{
 			ID:        uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbb603"),
@@ -87,33 +87,33 @@ func (s *UserPasswordResetTokenRepositorySuite) TestCreatePasswordResetToken() {
 		ExpiresAt: seedTokenExpiresFuture,
 		TokenHash: "password-reset-hash-new",
 	}
-	s.Require().NoError(s.repo.CreatePasswordResetToken(s.ctx, token))
+	s.Require().NoError(s.repo.Create(s.ctx, token))
 
-	got, err := s.repo.GetPasswordResetTokenByHash(s.ctx, "password-reset-hash-new")
+	got, err := s.repo.GetByHash(s.ctx, "password-reset-hash-new")
 	s.Require().NoError(err)
 	s.Equal("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbb603", got.ID.String())
 }
 
-func (s *UserPasswordResetTokenRepositorySuite) TestGetPasswordResetTokenByHash() {
-	got, err := s.repo.GetPasswordResetTokenByHash(s.ctx, seedPasswordResetHash)
+func (s *RepositorySuite) TestGetByHash() {
+	got, err := s.repo.GetByHash(s.ctx, seedPasswordResetHash)
 	s.Require().NoError(err)
 	s.Equal(seedPasswordResetID, got.ID.String())
 }
 
-func (s *UserPasswordResetTokenRepositorySuite) TestMarkPasswordResetTokenAsUsed() {
-	s.Require().NoError(s.repo.MarkPasswordResetTokenAsUsed(s.ctx, seedPasswordResetID))
-	got, err := s.repo.GetPasswordResetTokenByHash(s.ctx, seedPasswordResetHash)
+func (s *RepositorySuite) TestMarkAsUsed() {
+	s.Require().NoError(s.repo.MarkAsUsed(s.ctx, seedPasswordResetID))
+	got, err := s.repo.GetByHash(s.ctx, seedPasswordResetHash)
 	s.Require().NoError(err)
 	s.NotNil(got.UsedAt)
 }
 
-func (s *UserPasswordResetTokenRepositorySuite) TestCleanupStaleUnusedPasswordResetTokens() {
-	s.Require().NoError(s.repo.CleanupStaleUnusedPasswordResetTokens(s.ctx))
-	_, err := s.repo.GetPasswordResetTokenByHash(s.ctx, "password-reset-hash-stale")
+func (s *RepositorySuite) TestCleanupStaleUnused() {
+	s.Require().NoError(s.repo.CleanupStaleUnused(s.ctx))
+	_, err := s.repo.GetByHash(s.ctx, "password-reset-hash-stale")
 	s.requireNotFound(err)
 }
 
-func (s *UserPasswordResetTokenRepositorySuite) TestWithTx() {
+func (s *RepositorySuite) TestWithTx() {
 	token := &models.UserPasswordResetToken{
 		ModelBase: chi_types.ModelBase{
 			ID:        uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbb604"),
@@ -124,16 +124,16 @@ func (s *UserPasswordResetTokenRepositorySuite) TestWithTx() {
 		TokenHash: "password-reset-hash-tx",
 	}
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
-		return s.repo.WithTx(tx).CreatePasswordResetToken(s.ctx, token)
+		return s.repo.WithTx(tx).Create(s.ctx, token)
 	})
 	s.Require().NoError(err)
 
-	got, err := s.repo.GetPasswordResetTokenByHash(s.ctx, "password-reset-hash-tx")
+	got, err := s.repo.GetByHash(s.ctx, "password-reset-hash-tx")
 	s.Require().NoError(err)
 	s.Equal("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbb604", got.ID.String())
 }
 
-func (s *UserPasswordResetTokenRepositorySuite) requireNotFound(err error) {
+func (s *RepositorySuite) requireNotFound(err error) {
 	s.T().Helper()
 	s.Require().Error(err)
 	var apiErr *chi_error.Error

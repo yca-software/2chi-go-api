@@ -37,30 +37,30 @@ func TestMain(m *testing.M) {
 	os.Exit(testutil.IntegrationTestMain(m))
 }
 
-func TestUserLegalDocumentAcceptanceRepositorySuite(t *testing.T) {
-	suite.Run(t, new(UserLegalDocumentAcceptanceRepositorySuite))
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(RepositorySuite))
 }
 
-type UserLegalDocumentAcceptanceRepositorySuite struct {
+type RepositorySuite struct {
 	suite.Suite
 
 	db   *sqlx.DB
-	repo user_legal_document_acceptance_repository.UserLegalDocumentAcceptanceRepository
+	repo user_legal_document_acceptance_repository.Repository
 	ctx  context.Context
 }
 
-func (s *UserLegalDocumentAcceptanceRepositorySuite) SetupSuite() {
+func (s *RepositorySuite) SetupSuite() {
 	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
 	s.Require().NoError(err)
 
-	s.repo = user_legal_document_acceptance_repository.NewUserLegalDocumentAcceptanceRepository(s.db, nil)
+	s.repo = user_legal_document_acceptance_repository.NewRepository(s.db, nil)
 	s.ctx = context.Background()
 }
 
-func (s *UserLegalDocumentAcceptanceRepositorySuite) SetupTest() {
+func (s *RepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
 INSERT INTO users (
 	id, created_at, deleted_at, first_name, last_name, language, email, password
@@ -73,12 +73,12 @@ INSERT INTO user_legal_document_acceptances (id, created_at, updated_at, user_id
 	s.Require().NoError(err)
 }
 
-func (s *UserLegalDocumentAcceptanceRepositorySuite) TearDownTest() {
+func (s *RepositorySuite) TearDownTest() {
 	_, err := s.db.ExecContext(s.ctx, `TRUNCATE TABLE users CASCADE`)
 	s.Require().NoError(err)
 }
 
-func (s *UserLegalDocumentAcceptanceRepositorySuite) TestCreateUserLegalDocumentAcceptance() {
+func (s *RepositorySuite) TestCreate() {
 	acceptance := &models.UserLegalDocumentAcceptance{
 		ModelBase: chi_types.ModelBase{
 			ID:        uuid.MustParse("66666666-6666-6666-6666-666666666004"),
@@ -89,15 +89,15 @@ func (s *UserLegalDocumentAcceptanceRepositorySuite) TestCreateUserLegalDocument
 		DocumentType:    "privacy_policy",
 		DocumentVersion: "2.0.0",
 	}
-	s.Require().NoError(s.repo.CreateUserLegalDocumentAcceptance(s.ctx, acceptance))
+	s.Require().NoError(s.repo.Create(s.ctx, acceptance))
 
-	got, err := s.repo.GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType(s.ctx, seedUserID, "privacy_policy")
+	got, err := s.repo.GetLatestByUserIDAndDocumentType(s.ctx, seedUserID, "privacy_policy")
 	s.Require().NoError(err)
 	s.Equal("66666666-6666-6666-6666-666666666004", got.ID.String())
 }
 
-func (s *UserLegalDocumentAcceptanceRepositorySuite) TestListUserLegalDocumentAcceptancesByUserID() {
-	rows, err := s.repo.ListUserLegalDocumentAcceptancesByUserID(s.ctx, seedUserID)
+func (s *RepositorySuite) TestListByUserID() {
+	rows, err := s.repo.ListByUserID(s.ctx, seedUserID)
 	s.Require().NoError(err)
 	s.Len(*rows, 3)
 	s.Equal(seedPrivacyID, (*rows)[0].ID.String())
@@ -105,20 +105,20 @@ func (s *UserLegalDocumentAcceptanceRepositorySuite) TestListUserLegalDocumentAc
 	s.Equal(seedTermsV1ID, (*rows)[2].ID.String())
 }
 
-func (s *UserLegalDocumentAcceptanceRepositorySuite) TestGetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType() {
-	got, err := s.repo.GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType(s.ctx, seedUserID, seedDocumentTypeTerms)
+func (s *RepositorySuite) TestGetLatestByUserIDAndDocumentType() {
+	got, err := s.repo.GetLatestByUserIDAndDocumentType(s.ctx, seedUserID, seedDocumentTypeTerms)
 	s.Require().NoError(err)
 	s.Equal(seedTermsV2ID, got.ID.String())
 	s.Equal("2.0.0", got.DocumentVersion)
 }
 
-func (s *UserLegalDocumentAcceptanceRepositorySuite) TestGetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType_NotFound() {
-	_, err := s.repo.GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType(s.ctx, seedUserID, "cookie_policy")
+func (s *RepositorySuite) TestGetLatestByUserIDAndDocumentType_NotFound() {
+	_, err := s.repo.GetLatestByUserIDAndDocumentType(s.ctx, seedUserID, "cookie_policy")
 	s.requireNotFound(err)
 }
 
-func (s *UserLegalDocumentAcceptanceRepositorySuite) TestListLatestUserLegalDocumentAcceptancesByUserID() {
-	rows, err := s.repo.ListLatestUserLegalDocumentAcceptancesByUserID(s.ctx, seedUserID)
+func (s *RepositorySuite) TestListLatestByUserID() {
+	rows, err := s.repo.ListLatestByUserID(s.ctx, seedUserID)
 	s.Require().NoError(err)
 	s.Len(*rows, 2)
 
@@ -130,7 +130,7 @@ func (s *UserLegalDocumentAcceptanceRepositorySuite) TestListLatestUserLegalDocu
 	s.Equal(seedTermsV2ID, byType[seedDocumentTypeTerms].ID.String())
 }
 
-func (s *UserLegalDocumentAcceptanceRepositorySuite) TestWithTx() {
+func (s *RepositorySuite) TestWithTx() {
 	acceptance := &models.UserLegalDocumentAcceptance{
 		ModelBase: chi_types.ModelBase{
 			ID:        uuid.MustParse("66666666-6666-6666-6666-666666666005"),
@@ -142,16 +142,16 @@ func (s *UserLegalDocumentAcceptanceRepositorySuite) TestWithTx() {
 		DocumentVersion: "3.0.0",
 	}
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
-		return s.repo.WithTx(tx).CreateUserLegalDocumentAcceptance(s.ctx, acceptance)
+		return s.repo.WithTx(tx).Create(s.ctx, acceptance)
 	})
 	s.Require().NoError(err)
 
-	got, err := s.repo.GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType(s.ctx, seedUserID, seedDocumentTypeTerms)
+	got, err := s.repo.GetLatestByUserIDAndDocumentType(s.ctx, seedUserID, seedDocumentTypeTerms)
 	s.Require().NoError(err)
 	s.Equal("66666666-6666-6666-6666-666666666005", got.ID.String())
 }
 
-func (s *UserLegalDocumentAcceptanceRepositorySuite) requireNotFound(err error) {
+func (s *RepositorySuite) requireNotFound(err error) {
 	s.T().Helper()
 	s.Require().Error(err)
 	var apiErr *chi_error.Error

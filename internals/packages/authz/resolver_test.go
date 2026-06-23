@@ -25,9 +25,9 @@ type PermissionResolverSuite struct {
 	suite.Suite
 	ctx         context.Context
 	now         time.Time
-	apiKeysRepo *api_key_repository.MockAPIKeysRepository
-	orgsRepo    *organization_repository.MockOrganizationsRepository
-	billingRepo *billing_account_repository.MockOrganizationBillingAccountsRepository
+	apiKeysRepo *api_key_repository.MockRepository
+	orgsRepo    *organization_repository.MockRepository
+	billingRepo *billing_account_repository.MockRepository
 	session     *authz.SessionCache
 	resolver    authz.PermissionResolver
 }
@@ -39,9 +39,9 @@ func TestPermissionResolverSuite(t *testing.T) {
 func (s *PermissionResolverSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.now = time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
-	s.apiKeysRepo = &api_key_repository.MockAPIKeysRepository{}
-	s.orgsRepo = &organization_repository.MockOrganizationsRepository{}
-	s.billingRepo = &billing_account_repository.MockOrganizationBillingAccountsRepository{}
+	s.apiKeysRepo = &api_key_repository.MockRepository{}
+	s.orgsRepo = &organization_repository.MockRepository{}
+	s.billingRepo = &billing_account_repository.MockRepository{}
 	s.session = authz.NewTestSessionCache(s.T(), time.Hour)
 	s.resolver = authz.NewPermissionResolver(authz.PermissionResolverDeps{
 		SessionCache:                    s.session,
@@ -55,22 +55,19 @@ func (s *PermissionResolverSuite) SetupTest() {
 
 func (s *PermissionResolverSuite) TestResolveAPIKeyAccess_ArchivedOrganizationRejected() {
 	orgID := uuid.MustParse("22222222-2222-2222-2222-222222222401")
-	keyID := uuid.MustParse("88888888-8888-8888-8888-888888888401")
 	plainKey := "ak_test_plain_key_value"
 	deletedAt := s.now.Add(-time.Hour)
 
-	s.apiKeysRepo.On("GetAPIKeyByHash", s.ctx, resolverTestHasher.Hash(plainKey)).
+	s.apiKeysRepo.On("GetByHash", s.ctx, resolverTestHasher.Hash(plainKey)).
 		Return(&models.APIKey{
-			ModelBase:      chi_types.ModelBase{ID: keyID},
 			OrganizationID: orgID,
 			Name:           "Archived Org Key",
 			ExpiresAt:      s.now.Add(time.Hour),
 			Permissions:    []string{constants.PERMISSION_ORG_READ},
 		}, nil).Once()
-	s.orgsRepo.On("GetOrganizationByIDIncludeArchived", s.ctx, orgID.String()).
+	s.orgsRepo.On("GetByIDIncludeArchived", s.ctx, orgID.String()).
 		Return(&models.Organization{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
-				ModelBase: chi_types.ModelBase{ID: orgID},
 				DeletedAt: &deletedAt,
 			},
 			Name: "Archived Org",
@@ -89,22 +86,22 @@ func (s *PermissionResolverSuite) TestResolveAPIKeyAccess_ActiveOrganizationAllo
 	keyID := uuid.MustParse("88888888-8888-8888-8888-888888888402")
 	plainKey := "ak_test_active_org_key"
 
-	s.apiKeysRepo.On("GetAPIKeyByHash", s.ctx, mock.Anything).
+	s.apiKeysRepo.On("GetByHash", s.ctx, mock.Anything).
 		Return(&models.APIKey{
-			ModelBase:      chi_types.ModelBase{ID: keyID},
+			ModelBase: chi_types.ModelBase{ID: keyID},
 			OrganizationID: orgID,
 			Name:           "Active Org Key",
 			ExpiresAt:      s.now.Add(time.Hour),
 			Permissions:    []string{constants.PERMISSION_ORG_READ},
 		}, nil).Once()
-	s.orgsRepo.On("GetOrganizationByIDIncludeArchived", s.ctx, orgID.String()).
+	s.orgsRepo.On("GetByIDIncludeArchived", s.ctx, orgID.String()).
 		Return(&models.Organization{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: orgID},
 			},
 			Name: "Active Org",
 		}, nil).Once()
-	s.billingRepo.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, orgID.String()).
+	s.billingRepo.On("GetByOrganizationID", s.ctx, orgID.String()).
 		Return(&models.OrganizationBillingAccount{
 			OrganizationID:   orgID,
 			SubscriptionTier: constants.TIER_PRO,

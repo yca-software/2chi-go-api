@@ -10,14 +10,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
+	"github.com/yca-software/2chi-go-api/internals/packages/audit"
+	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
 	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
 	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
 	role_repository "github.com/yca-software/2chi-go-api/internals/repositories/role"
 	audit_service "github.com/yca-software/2chi-go-api/internals/services/audit"
-	"github.com/yca-software/2chi-go-api/internals/packages/audit"
-	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_types "github.com/yca-software/2chi-go-types"
@@ -36,10 +36,10 @@ type Dependencies struct {
 }
 
 type Service interface {
-	CreateRole(ctx context.Context, req *CreateRoleRequest, access *chi_types.AccessInfo) (*models.Role, error)
-	UpdateRole(ctx context.Context, req *UpdateRoleRequest, access *chi_types.AccessInfo) (*models.Role, error)
-	DeleteRole(ctx context.Context, req *DeleteRoleRequest, access *chi_types.AccessInfo) error
-	ListRoles(ctx context.Context, req *ListRolesRequest, access *chi_types.AccessInfo) (*[]models.Role, error)
+	Create(ctx context.Context, req *CreateRequest, access *chi_types.AccessInfo) (*models.Role, error)
+	Update(ctx context.Context, req *UpdateRequest, access *chi_types.AccessInfo) (*models.Role, error)
+	Delete(ctx context.Context, req *DeleteRequest, access *chi_types.AccessInfo) error
+	List(ctx context.Context, req *ListRequest, access *chi_types.AccessInfo) (*[]models.Role, error)
 }
 
 type service struct {
@@ -48,10 +48,10 @@ type service struct {
 	validator               chi_validator.Validator
 	logger                  chi_logger.Logger
 	authorizer              *authz.Authorizer
-	billingAccountsRepo     billing_account_repository.OrganizationBillingAccountsRepository
-	rolesRepo               role_repository.RolesRepository
-	organizationsRepo       organization_repository.OrganizationsRepository
-	organizationMembersRepo organization_member_repository.OrganizationMembersRepository
+	billingAccountsRepo     billing_account_repository.Repository
+	rolesRepo               role_repository.Repository
+	organizationsRepo       organization_repository.Repository
+	organizationMembersRepo organization_member_repository.Repository
 	auditService            audit_service.Service
 	sessionCache            *authz.SessionCache
 }
@@ -72,16 +72,12 @@ func New(deps Dependencies) Service {
 	}
 }
 
-func (s *service) CreateRole(ctx context.Context, req *CreateRoleRequest, access *chi_types.AccessInfo) (*models.Role, error) {
+func (s *service) Create(ctx context.Context, req *CreateRequest, access *chi_types.AccessInfo) (*models.Role, error) {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return nil, err
-	}
-
-	billing, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billing, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +105,7 @@ func (s *service) CreateRole(ctx context.Context, req *CreateRoleRequest, access
 		Permissions:    req.Permissions,
 	}
 
-	if err := s.rolesRepo.CreateRole(ctx, role); err != nil {
+	if err := s.rolesRepo.Create(ctx, role); err != nil {
 		return nil, err
 	}
 
@@ -122,16 +118,12 @@ func (s *service) CreateRole(ctx context.Context, req *CreateRoleRequest, access
 	return role, nil
 }
 
-func (s *service) UpdateRole(ctx context.Context, req *UpdateRoleRequest, access *chi_types.AccessInfo) (*models.Role, error) {
+func (s *service) Update(ctx context.Context, req *UpdateRequest, access *chi_types.AccessInfo) (*models.Role, error) {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return nil, err
-	}
-
-	billing, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billing, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +135,7 @@ func (s *service) UpdateRole(ctx context.Context, req *UpdateRoleRequest, access
 		return nil, err
 	}
 
-	role, err := s.rolesRepo.GetRoleByID(ctx, req.OrganizationID, req.RoleID)
+	role, err := s.rolesRepo.GetByID(ctx, req.OrganizationID, req.RoleID)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +149,7 @@ func (s *service) UpdateRole(ctx context.Context, req *UpdateRoleRequest, access
 	updatedRole.Description = strings.TrimSpace(req.Description)
 	updatedRole.Permissions = req.Permissions
 
-	if err := s.rolesRepo.UpdateRole(ctx, &updatedRole); err != nil {
+	if err := s.rolesRepo.Update(ctx, &updatedRole); err != nil {
 		return nil, err
 	}
 
@@ -179,16 +171,12 @@ func (s *service) UpdateRole(ctx context.Context, req *UpdateRoleRequest, access
 	return &updatedRole, nil
 }
 
-func (s *service) DeleteRole(ctx context.Context, req *DeleteRoleRequest, access *chi_types.AccessInfo) error {
+func (s *service) Delete(ctx context.Context, req *DeleteRequest, access *chi_types.AccessInfo) error {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return err
-	}
-
-	billing, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billing, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -200,7 +188,7 @@ func (s *service) DeleteRole(ctx context.Context, req *DeleteRoleRequest, access
 		return err
 	}
 
-	role, err := s.rolesRepo.GetRoleByID(ctx, req.OrganizationID, req.RoleID)
+	role, err := s.rolesRepo.GetByID(ctx, req.OrganizationID, req.RoleID)
 	if err != nil {
 		return err
 	}
@@ -220,7 +208,7 @@ func (s *service) DeleteRole(ctx context.Context, req *DeleteRoleRequest, access
 		})
 	}
 
-	if err := s.rolesRepo.DeleteRole(ctx, req.OrganizationID, req.RoleID); err != nil {
+	if err := s.rolesRepo.Delete(ctx, req.OrganizationID, req.RoleID); err != nil {
 		return err
 	}
 
@@ -233,20 +221,16 @@ func (s *service) DeleteRole(ctx context.Context, req *DeleteRoleRequest, access
 	return nil
 }
 
-func (s *service) ListRoles(ctx context.Context, req *ListRolesRequest, access *chi_types.AccessInfo) (*[]models.Role, error) {
+func (s *service) List(ctx context.Context, req *ListRequest, access *chi_types.AccessInfo) (*[]models.Role, error) {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
-	}
-
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return nil, err
 	}
 
 	if err := s.authorizer.CheckOrganizationPermission(access, req.OrganizationID, constants.PERMISSION_ROLE_READ); err != nil {
 		return nil, err
 	}
 
-	return s.rolesRepo.ListRolesByOrganizationID(ctx, req.OrganizationID)
+	return s.rolesRepo.ListByOrganizationID(ctx, req.OrganizationID)
 }
 
 func (s *service) logRoleAudit(ctx context.Context, access *chi_types.AccessInfo, orgID, action string, role *models.Role, payload map[string]any) {
@@ -256,7 +240,7 @@ func (s *service) logRoleAudit(ctx context.Context, access *chi_types.AccessInfo
 		return
 	}
 	changesRaw := json.RawMessage(changes)
-	if _, err := s.auditService.CreateAuditLog(ctx, &audit_service.CreateAuditLogRequest{
+	if _, err := s.auditService.Create(ctx, &audit_service.CreateRequest{
 		OrganizationID: orgID,
 		Action:         action,
 		ResourceType:   constants.RESOURCE_TYPE_ROLE,

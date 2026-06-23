@@ -8,15 +8,15 @@ import (
 	chi_repository "github.com/yca-software/2chi-go-repository"
 )
 
-type MockAdminAccessRepository struct {
+type MockRepository struct {
 	mock.Mock
 }
 
-func (m *MockAdminAccessRepository) WithTx(_ chi_repository.Tx) AdminAccessRepository {
+func (m *MockRepository) WithTx(_ chi_repository.Tx) Repository {
 	return m
 }
 
-func (m *MockAdminAccessRepository) GetAdminAccessByUserID(ctx context.Context, userID string) (*models.AdminAccess, error) {
+func (m *MockRepository) GetByUserID(ctx context.Context, userID string) (*models.AdminAccess, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -24,6 +24,6 @@ func (m *MockAdminAccessRepository) GetAdminAccessByUserID(ctx context.Context, 
 	return args.Get(0).(*models.AdminAccess), args.Error(1)
 }
 
-func (m *MockAdminAccessRepository) DeleteAdminAccessByUserID(ctx context.Context, userID string) error {
+func (m *MockRepository) DeleteByUserID(ctx context.Context, userID string) error {
 	return m.Called(ctx, userID).Error(0)
 }

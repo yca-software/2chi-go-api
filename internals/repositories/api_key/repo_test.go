@@ -43,33 +43,33 @@ func TestMain(m *testing.M) {
 	os.Exit(testutil.IntegrationTestMain(m))
 }
 
-func TestAPIKeysRepositorySuite(t *testing.T) {
-	suite.Run(t, new(APIKeysRepositorySuite))
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(RepositorySuite))
 }
 
-type APIKeysRepositorySuite struct {
+type RepositorySuite struct {
 	suite.Suite
 
 	db   *sqlx.DB
-	repo api_key_repository.APIKeysRepository
+	repo api_key_repository.Repository
 	ctx  context.Context
 }
 
-func (s *APIKeysRepositorySuite) SetupSuite() {
+func (s *RepositorySuite) SetupSuite() {
 	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
 	s.Require().NoError(err)
 
-	s.repo = api_key_repository.NewAPIKeysRepository(s.db, nil)
+	s.repo = api_key_repository.NewRepository(s.db, nil)
 	s.ctx = context.Background()
 }
 
-func (s *APIKeysRepositorySuite) SetupTest() {
+func (s *RepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
-INSERT INTO organizations (id, created_at, deleted_at, name) VALUES (
-	'22222222-2222-2222-2222-222222222401', '2024-01-01T00:00:00Z', NULL, 'API Org'
+INSERT INTO organizations (id, created_at, deleted_at, name, address, city, zip, country, place_id, geo, timezone) VALUES (
+	'22222222-2222-2222-2222-222222222401', '2024-01-01T00:00:00Z', NULL, 'API Org', '1 Main St', 'Oslo', '0001', 'NO', 'place_seed_api', ST_SetSRID(ST_MakePoint(10.7, 59.9), 4326), 'Europe/Oslo'
 );
 INSERT INTO api_keys (
 	id, created_at, expires_at, name, key_prefix, key_hash, organization_id, permissions
@@ -80,63 +80,63 @@ INSERT INTO api_keys (
 	s.Require().NoError(err)
 }
 
-func (s *APIKeysRepositorySuite) TearDownTest() {
+func (s *RepositorySuite) TearDownTest() {
 	_, err := s.db.ExecContext(s.ctx, `TRUNCATE TABLE api_keys, organizations CASCADE`)
 	s.Require().NoError(err)
 }
 
-func (s *APIKeysRepositorySuite) TestCreateAPIKey() {
+func (s *RepositorySuite) TestCreate() {
 	key := s.newAPIKey(seedAPIKeyNewID, seedAPIKeyNewHash, "New Key", "ak_new")
-	s.Require().NoError(s.repo.CreateAPIKey(s.ctx, key))
+	s.Require().NoError(s.repo.Create(s.ctx, key))
 
-	got, err := s.repo.GetAPIKeyByID(s.ctx, seedAPIKeyOrgID, seedAPIKeyNewID)
+	got, err := s.repo.GetByID(s.ctx, seedAPIKeyOrgID, seedAPIKeyNewID)
 	s.Require().NoError(err)
 	s.Equal("New Key", got.Name)
 }
 
-func (s *APIKeysRepositorySuite) TestUpdateAPIKey() {
-	key, err := s.repo.GetAPIKeyByID(s.ctx, seedAPIKeyOrgID, seedAPIKeyUpdateID)
+func (s *RepositorySuite) TestUpdate() {
+	key, err := s.repo.GetByID(s.ctx, seedAPIKeyOrgID, seedAPIKeyUpdateID)
 	s.Require().NoError(err)
 	key.Name = "Updated Key"
 	key.Permissions = models.RolePermissions{"org:write"}
-	s.Require().NoError(s.repo.UpdateAPIKey(s.ctx, key))
+	s.Require().NoError(s.repo.Update(s.ctx, key))
 
-	got, err := s.repo.GetAPIKeyByID(s.ctx, seedAPIKeyOrgID, seedAPIKeyUpdateID)
+	got, err := s.repo.GetByID(s.ctx, seedAPIKeyOrgID, seedAPIKeyUpdateID)
 	s.Require().NoError(err)
 	s.Equal("Updated Key", got.Name)
 }
 
-func (s *APIKeysRepositorySuite) TestDeleteAPIKey() {
-	s.Require().NoError(s.repo.DeleteAPIKey(s.ctx, seedAPIKeyOrgID, seedAPIKeyDeleteID))
-	_, err := s.repo.GetAPIKeyByID(s.ctx, seedAPIKeyOrgID, seedAPIKeyDeleteID)
+func (s *RepositorySuite) TestDelete() {
+	s.Require().NoError(s.repo.Delete(s.ctx, seedAPIKeyOrgID, seedAPIKeyDeleteID))
+	_, err := s.repo.GetByID(s.ctx, seedAPIKeyOrgID, seedAPIKeyDeleteID)
 	s.requireNotFound(err)
 }
 
-func (s *APIKeysRepositorySuite) TestGetAPIKeyByHash() {
-	got, err := s.repo.GetAPIKeyByHash(s.ctx, seedAPIKeyHash)
+func (s *RepositorySuite) TestGetByHash() {
+	got, err := s.repo.GetByHash(s.ctx, seedAPIKeyHash)
 	s.Require().NoError(err)
 	s.Equal(seedAPIKeyActiveID, got.ID.String())
 }
 
-func (s *APIKeysRepositorySuite) TestListAPIKeysByOrganizationID() {
-	rows, err := s.repo.ListAPIKeysByOrganizationID(s.ctx, seedAPIKeyOrgID)
+func (s *RepositorySuite) TestListByOrganizationID() {
+	rows, err := s.repo.ListByOrganizationID(s.ctx, seedAPIKeyOrgID)
 	s.Require().NoError(err)
 	s.GreaterOrEqual(len(*rows), 3)
 }
 
-func (s *APIKeysRepositorySuite) TestWithTx() {
+func (s *RepositorySuite) TestWithTx() {
 	key := s.newAPIKey(seedAPIKeyTxID, seedAPIKeyTxHash, "Tx Key", "ak_tx")
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
-		return s.repo.WithTx(tx).CreateAPIKey(s.ctx, key)
+		return s.repo.WithTx(tx).Create(s.ctx, key)
 	})
 	s.Require().NoError(err)
 
-	got, err := s.repo.GetAPIKeyByHash(s.ctx, seedAPIKeyTxHash)
+	got, err := s.repo.GetByHash(s.ctx, seedAPIKeyTxHash)
 	s.Require().NoError(err)
 	s.Equal("Tx Key", got.Name)
 }
 
-func (s *APIKeysRepositorySuite) newAPIKey(id, hash, name, prefix string) *models.APIKey {
+func (s *RepositorySuite) newAPIKey(id, hash, name, prefix string) *models.APIKey {
 	return &models.APIKey{
 		ModelBase: chi_types.ModelBase{
 			ID:        uuid.MustParse(id),
@@ -151,7 +151,7 @@ func (s *APIKeysRepositorySuite) newAPIKey(id, hash, name, prefix string) *model
 	}
 }
 
-func (s *APIKeysRepositorySuite) requireNotFound(err error) {
+func (s *RepositorySuite) requireNotFound(err error) {
 	s.T().Helper()
 	s.Require().Error(err)
 	var apiErr *chi_error.Error

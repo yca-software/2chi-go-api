@@ -8,19 +8,19 @@ import (
 	chi_repository "github.com/yca-software/2chi-go-repository"
 )
 
-type MockUserLegalDocumentAcceptanceRepository struct {
+type MockRepository struct {
 	mock.Mock
 }
 
-func (m *MockUserLegalDocumentAcceptanceRepository) WithTx(_ chi_repository.Tx) UserLegalDocumentAcceptanceRepository {
+func (m *MockRepository) WithTx(_ chi_repository.Tx) Repository {
 	return m
 }
 
-func (m *MockUserLegalDocumentAcceptanceRepository) CreateUserLegalDocumentAcceptance(ctx context.Context, acceptance *models.UserLegalDocumentAcceptance) error {
+func (m *MockRepository) Create(ctx context.Context, acceptance *models.UserLegalDocumentAcceptance) error {
 	return m.Called(ctx, acceptance).Error(0)
 }
 
-func (m *MockUserLegalDocumentAcceptanceRepository) ListUserLegalDocumentAcceptancesByUserID(ctx context.Context, userID string) (*[]models.UserLegalDocumentAcceptance, error) {
+func (m *MockRepository) ListByUserID(ctx context.Context, userID string) (*[]models.UserLegalDocumentAcceptance, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -28,7 +28,7 @@ func (m *MockUserLegalDocumentAcceptanceRepository) ListUserLegalDocumentAccepta
 	return args.Get(0).(*[]models.UserLegalDocumentAcceptance), args.Error(1)
 }
 
-func (m *MockUserLegalDocumentAcceptanceRepository) GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType(ctx context.Context, userID, documentType string) (*models.UserLegalDocumentAcceptance, error) {
+func (m *MockRepository) GetLatestByUserIDAndDocumentType(ctx context.Context, userID, documentType string) (*models.UserLegalDocumentAcceptance, error) {
 	args := m.Called(ctx, userID, documentType)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -36,7 +36,7 @@ func (m *MockUserLegalDocumentAcceptanceRepository) GetLatestUserLegalDocumentAc
 	return args.Get(0).(*models.UserLegalDocumentAcceptance), args.Error(1)
 }
 
-func (m *MockUserLegalDocumentAcceptanceRepository) ListLatestUserLegalDocumentAcceptancesByUserID(ctx context.Context, userID string) (*[]models.UserLegalDocumentAcceptance, error) {
+func (m *MockRepository) ListLatestByUserID(ctx context.Context, userID string) (*[]models.UserLegalDocumentAcceptance, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

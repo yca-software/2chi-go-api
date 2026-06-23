@@ -64,7 +64,7 @@ func (s *InvitationsHandlerSuite) withAccess(next echo.HandlerFunc) echo.Handler
 
 func (s *InvitationsHandlerSuite) TestListInvitations_Success() {
 	invitations := []models.Invitation{{Email: "invitee@example.com"}}
-	s.invitationsService.On("ListInvitations", mock.Anything, mock.MatchedBy(func(req *invitation_service.ListInvitationsRequest) bool {
+	s.invitationsService.On("List", mock.Anything, mock.MatchedBy(func(req *invitation_service.ListRequest) bool {
 		return req.OrganizationID == testOrgID
 	}), s.userAccess).Return(&invitations, nil).Once()
 
@@ -79,9 +79,9 @@ func (s *InvitationsHandlerSuite) TestListInvitations_Success() {
 }
 
 func (s *InvitationsHandlerSuite) TestCreateInvitation_Success() {
-	s.invitationsService.On("CreateInvitation", mock.Anything, mock.MatchedBy(func(req *invitation_service.CreateInvitationRequest) bool {
+	s.invitationsService.On("Create", mock.Anything, mock.MatchedBy(func(req *invitation_service.CreateRequest) bool {
 		return req.OrganizationID == testOrgID && req.Email == "invitee@example.com"
-	}), s.userAccess).Return(&invitation_service.CreateInvitationResponse{}, nil).Once()
+	}), s.userAccess).Return(&invitation_service.CreateResponse{}, nil).Once()
 
 	s.echo.POST("/api/v1/organization/:orgId/invitation", s.handler.CreateInvitation, s.withAccess)
 
@@ -95,7 +95,7 @@ func (s *InvitationsHandlerSuite) TestCreateInvitation_Success() {
 }
 
 func (s *InvitationsHandlerSuite) TestRevokeInvitation_Success() {
-	s.invitationsService.On("RevokeInvitation", mock.Anything, mock.MatchedBy(func(req *invitation_service.RevokeInvitationRequest) bool {
+	s.invitationsService.On("Revoke", mock.Anything, mock.MatchedBy(func(req *invitation_service.RevokeRequest) bool {
 		return req.OrganizationID == testOrgID && req.InvitationID == testInvitationID
 	}), s.userAccess).Return(nil).Once()
 

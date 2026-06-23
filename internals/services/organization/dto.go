@@ -3,8 +3,8 @@ package organization_service
 import (
 	"time"
 
-	chi_archive "github.com/yca-software/2chi-go-archive"
 	"github.com/yca-software/2chi-go-api/internals/models"
+	chi_archive "github.com/yca-software/2chi-go-archive"
 	chi_types "github.com/yca-software/2chi-go-types"
 )
 
@@ -47,10 +47,10 @@ type GetOrganizationRequest struct {
 }
 
 type ListOrganizationsRequest struct {
-	SearchPhrase  string                  `json:"-" validate:"omitempty,min=1,max=255"`
+	SearchPhrase  string                    `json:"-" validate:"omitempty,min=1,max=255"`
 	ArchiveFilter chi_archive.ArchiveFilter `json:"-" validate:"omitempty,oneof=active archived all"`
-	Limit         int                     `json:"-" validate:"required,min=1,max=100"`
-	Offset        int                     `json:"-" validate:"gte=0"`
+	Limit         int                       `json:"-" validate:"required,min=1,max=100"`
+	Offset        int                       `json:"-" validate:"gte=0"`
 }
 
 type ListOrganizationsResponse chi_types.PaginatedListResponse[models.Organization]

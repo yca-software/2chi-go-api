@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	AuditLogsTableName = "audit_logs"
+	TableName = "audit_logs"
 )
 
 var (
-	AuditLogsColumns = []string{
+	Columns = []string{
 		"id", "created_at", "organization_id",
 		"actor_id", "actor_info", "impersonated_by_id", "impersonated_by_email",
 		"action", "resource_type", "resource_id", "resource_name", "data",
@@ -33,25 +33,25 @@ type AuditLogFilters struct {
 	Search       *string
 }
 
-type AuditLogsRepository interface {
-	WithTx(tx chi_repository.Tx) AuditLogsRepository
+type Repository interface {
+	WithTx(tx chi_repository.Tx) Repository
 
-	CreateAuditLog(ctx context.Context, log *models.AuditLog) error
-	ListAuditLogsByOrganizationID(ctx context.Context, organizationID string, filters *AuditLogFilters, limit, offset int) (*[]models.AuditLog, error)
+	Create(ctx context.Context, log *models.AuditLog) error
+	ListByOrganizationID(ctx context.Context, organizationID string, filters *AuditLogFilters, limit, offset int) (*[]models.AuditLog, error)
 }
 
-type auditLogsRepository struct {
-	auditLogsRepo chi_repository.Repository[models.AuditLog]
+type repository struct {
+	repo chi_repository.Repository[models.AuditLog]
 }
 
-func NewAuditLogsRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) AuditLogsRepository {
-	return &auditLogsRepository{
-		auditLogsRepo: chi_repository.NewRepository[models.AuditLog](db, AuditLogsTableName, AuditLogsColumns, metricsHook),
+func NewRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) Repository {
+	return &repository{
+		repo: chi_repository.NewRepository[models.AuditLog](db, TableName, Columns, metricsHook),
 	}
 }
 
-func (r *auditLogsRepository) WithTx(tx chi_repository.Tx) AuditLogsRepository {
-	return &auditLogsRepository{auditLogsRepo: r.auditLogsRepo.WithTx(tx)}
+func (r *repository) WithTx(tx chi_repository.Tx) Repository {
+	return &repository{repo: r.repo.WithTx(tx)}
 }
 
 func applyAuditLogFilters(condition squirrel.And, filters *AuditLogFilters) squirrel.And {
@@ -88,8 +88,8 @@ func auditLogSearchPattern(search string) string {
 	return "%" + search + "%"
 }
 
-func (r *auditLogsRepository) CreateAuditLog(ctx context.Context, log *models.AuditLog) error {
-	return r.auditLogsRepo.Create(ctx, map[string]any{
+func (r *repository) Create(ctx context.Context, log *models.AuditLog) error {
+	return r.repo.Create(ctx, map[string]any{
 		"id":                    log.ID,
 		"created_at":            time.Now(),
 		"organization_id":       log.OrganizationID,
@@ -105,7 +105,7 @@ func (r *auditLogsRepository) CreateAuditLog(ctx context.Context, log *models.Au
 	})
 }
 
-func (r *auditLogsRepository) ListAuditLogsByOrganizationID(ctx context.Context, organizationID string, filters *AuditLogFilters, limit, offset int) (*[]models.AuditLog, error) {
+func (r *repository) ListByOrganizationID(ctx context.Context, organizationID string, filters *AuditLogFilters, limit, offset int) (*[]models.AuditLog, error) {
 	condition := applyAuditLogFilters(squirrel.And{squirrel.Eq{"organization_id": organizationID}}, filters)
-	return r.auditLogsRepo.PaginatedSelect(ctx, condition, nil, "created_at DESC", uint64(limit), uint64(offset))
+	return r.repo.PaginatedSelect(ctx, condition, nil, "created_at DESC", uint64(limit), uint64(offset))
 }

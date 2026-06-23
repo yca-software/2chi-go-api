@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
+	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
 	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
@@ -17,7 +18,6 @@ import (
 	role_repository "github.com/yca-software/2chi-go-api/internals/repositories/role"
 	audit_service "github.com/yca-software/2chi-go-api/internals/services/audit"
 	role_service "github.com/yca-software/2chi-go-api/internals/services/role"
-	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_types "github.com/yca-software/2chi-go-types"
@@ -29,10 +29,10 @@ type RoleServiceSuite struct {
 	ctx             context.Context
 	now             time.Time
 	orgID           uuid.UUID
-	rolesRepo       *role_repository.MockRolesRepository
-	orgsRepo        *organization_repository.MockOrganizationsRepository
-	billingAccounts *billing_account_repository.MockOrganizationBillingAccountsRepository
-	membersRepo     *organization_member_repository.MockOrganizationMembersRepository
+	rolesRepo       *role_repository.MockRepository
+	orgsRepo        *organization_repository.MockRepository
+	billingAccounts *billing_account_repository.MockRepository
+	membersRepo     *organization_member_repository.MockRepository
 	auditSvc        *audit_service.MockService
 	svc             role_service.Service
 }
@@ -45,10 +45,10 @@ func (s *RoleServiceSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.now = time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	s.orgID = uuid.New()
-	s.rolesRepo = &role_repository.MockRolesRepository{}
-	s.orgsRepo = &organization_repository.MockOrganizationsRepository{}
-	s.billingAccounts = &billing_account_repository.MockOrganizationBillingAccountsRepository{}
-	s.membersRepo = &organization_member_repository.MockOrganizationMembersRepository{}
+	s.rolesRepo = &role_repository.MockRepository{}
+	s.orgsRepo = &organization_repository.MockRepository{}
+	s.billingAccounts = &billing_account_repository.MockRepository{}
+	s.membersRepo = &organization_member_repository.MockRepository{}
 	s.auditSvc = &audit_service.MockService{}
 
 	s.svc = role_service.New(role_service.Dependencies{
@@ -69,16 +69,15 @@ func (s *RoleServiceSuite) SetupTest() {
 
 func (s *RoleServiceSuite) expectPaidOrg() {
 	expiresAt := s.now.Add(24 * time.Hour)
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
+	s.orgsRepo.On("GetByID", s.ctx, s.orgID.String()).
 		Return(&models.Organization{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: s.orgID},
 			},
 			Name: "Acme",
 		}, nil).Once()
-	s.billingAccounts.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccounts.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(&models.OrganizationBillingAccount{
-			ModelBase:             chi_types.ModelBase{ID: s.orgID},
 			OrganizationID:        s.orgID,
 			Provider:              constants.BILLING_PROVIDER_PADDLE,
 			SubscriptionTier:      constants.TIER_PRO,
@@ -98,7 +97,7 @@ func (s *RoleServiceSuite) userAccess() *chi_types.AccessInfo {
 }
 
 func (s *RoleServiceSuite) TestCreateRole_Validation_MissingName() {
-	role, err := s.svc.CreateRole(s.ctx, &role_service.CreateRoleRequest{
+	role, err := s.svc.Create(s.ctx, &role_service.CreateRequest{
 		OrganizationID: s.orgID.String(),
 		Name:           "",
 		Permissions:    []string{constants.PERMISSION_ORG_READ},
@@ -108,22 +107,21 @@ func (s *RoleServiceSuite) TestCreateRole_Validation_MissingName() {
 }
 
 func (s *RoleServiceSuite) TestCreateRole_FreePlanFeatureDenied() {
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
+	s.orgsRepo.On("GetByID", s.ctx, s.orgID.String()).
 		Return(&models.Organization{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: s.orgID},
 			},
 			Name: "Acme",
 		}, nil).Once()
-	s.billingAccounts.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccounts.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(&models.OrganizationBillingAccount{
-			ModelBase:        chi_types.ModelBase{ID: s.orgID},
 			OrganizationID:   s.orgID,
 			Provider:         constants.BILLING_PROVIDER_PADDLE,
 			SubscriptionTier: constants.TIER_FREE,
 		}, nil).Once()
 
-	role, err := s.svc.CreateRole(s.ctx, &role_service.CreateRoleRequest{
+	role, err := s.svc.Create(s.ctx, &role_service.CreateRequest{
 		OrganizationID: s.orgID.String(),
 		Name:           "Custom",
 		Permissions:    []string{constants.PERMISSION_ORG_READ},
@@ -135,9 +133,8 @@ func (s *RoleServiceSuite) TestCreateRole_FreePlanFeatureDenied() {
 func (s *RoleServiceSuite) TestDeleteRole_LockedRole() {
 	roleID := uuid.New()
 	s.expectPaidOrg()
-	s.rolesRepo.On("GetRoleByID", s.ctx, s.orgID.String(), roleID.String()).
+	s.rolesRepo.On("GetByID", s.ctx, s.orgID.String(), roleID.String()).
 		Return(&models.Role{
-			ModelBase:      chi_types.ModelBase{ID: roleID},
 			OrganizationID: s.orgID,
 			Locked:         true,
 		}, nil).Once()
@@ -145,7 +142,7 @@ func (s *RoleServiceSuite) TestDeleteRole_LockedRole() {
 	access := s.userAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_ROLE_DELETE}
 
-	err := s.svc.DeleteRole(s.ctx, &role_service.DeleteRoleRequest{
+	err := s.svc.Delete(s.ctx, &role_service.DeleteRequest{
 		OrganizationID: s.orgID.String(),
 		RoleID:         roleID.String(),
 	}, access)
@@ -162,19 +159,19 @@ func (s *RoleServiceSuite) TestListRoles_Success() {
 		OrganizationID: s.orgID,
 		Name:           "Owner",
 	}}
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
+	s.orgsRepo.On("GetByID", s.ctx, s.orgID.String()).
 		Return(&models.Organization{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: s.orgID},
 			},
 			Name: "Acme",
 		}, nil).Once()
-	s.rolesRepo.On("ListRolesByOrganizationID", s.ctx, s.orgID.String()).Return(&roles, nil).Once()
+	s.rolesRepo.On("ListByOrganizationID", s.ctx, s.orgID.String()).Return(&roles, nil).Once()
 
 	access := s.userAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_ROLE_READ}
 
-	result, err := s.svc.ListRoles(s.ctx, &role_service.ListRolesRequest{
+	result, err := s.svc.List(s.ctx, &role_service.ListRequest{
 		OrganizationID: s.orgID.String(),
 	}, access)
 	s.Require().NoError(err)
@@ -183,10 +180,10 @@ func (s *RoleServiceSuite) TestListRoles_Success() {
 
 func (s *RoleServiceSuite) TestCreateRole_Success() {
 	s.expectPaidOrg()
-	s.rolesRepo.On("CreateRole", s.ctx, mock.AnythingOfType("*models.Role")).Return(nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.rolesRepo.On("Create", s.ctx, mock.AnythingOfType("*models.Role")).Return(nil).Once()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
-	role, err := s.svc.CreateRole(s.ctx, &role_service.CreateRoleRequest{
+	role, err := s.svc.Create(s.ctx, &role_service.CreateRequest{
 		OrganizationID: s.orgID.String(),
 		Name:           "Editor",
 		Permissions:    []string{constants.PERMISSION_ORG_READ},
@@ -198,14 +195,13 @@ func (s *RoleServiceSuite) TestCreateRole_Success() {
 func (s *RoleServiceSuite) TestUpdateRole_LockedRole() {
 	roleID := uuid.New()
 	s.expectPaidOrg()
-	s.rolesRepo.On("GetRoleByID", s.ctx, s.orgID.String(), roleID.String()).
+	s.rolesRepo.On("GetByID", s.ctx, s.orgID.String(), roleID.String()).
 		Return(&models.Role{
-			ModelBase:      chi_types.ModelBase{ID: roleID},
 			OrganizationID: s.orgID,
 			Locked:         true,
 		}, nil).Once()
 
-	role, err := s.svc.UpdateRole(s.ctx, &role_service.UpdateRoleRequest{
+	role, err := s.svc.Update(s.ctx, &role_service.UpdateRequest{
 		OrganizationID: s.orgID.String(),
 		RoleID:         roleID.String(),
 		Name:           "X",
@@ -221,19 +217,18 @@ func (s *RoleServiceSuite) TestUpdateRole_LockedRole() {
 func (s *RoleServiceSuite) TestDeleteRole_Success() {
 	roleID := uuid.New()
 	s.expectPaidOrg()
-	s.rolesRepo.On("GetRoleByID", s.ctx, s.orgID.String(), roleID.String()).
+	s.rolesRepo.On("GetByID", s.ctx, s.orgID.String(), roleID.String()).
 		Return(&models.Role{
-			ModelBase:      chi_types.ModelBase{ID: roleID},
 			OrganizationID: s.orgID,
 		}, nil).Once()
-	s.rolesRepo.On("DeleteRole", s.ctx, s.orgID.String(), roleID.String()).Return(nil).Once()
+	s.rolesRepo.On("Delete", s.ctx, s.orgID.String(), roleID.String()).Return(nil).Once()
 	s.membersRepo.On("ListUserEmailsForRole", s.ctx, s.orgID.String(), roleID.String()).Return([]string{}, nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
 	access := s.userAccess()
 	access.Roles[0].Permissions = []string{constants.PERMISSION_ROLE_DELETE}
 
-	err := s.svc.DeleteRole(s.ctx, &role_service.DeleteRoleRequest{
+	err := s.svc.Delete(s.ctx, &role_service.DeleteRequest{
 		OrganizationID: s.orgID.String(),
 		RoleID:         roleID.String(),
 	}, access)
@@ -243,17 +238,16 @@ func (s *RoleServiceSuite) TestDeleteRole_Success() {
 func (s *RoleServiceSuite) TestUpdateRole_Success() {
 	roleID := uuid.New()
 	s.expectPaidOrg()
-	s.rolesRepo.On("GetRoleByID", s.ctx, s.orgID.String(), roleID.String()).
+	s.rolesRepo.On("GetByID", s.ctx, s.orgID.String(), roleID.String()).
 		Return(&models.Role{
-			ModelBase:      chi_types.ModelBase{ID: roleID},
 			OrganizationID: s.orgID,
 			Name:           "Old",
 			Permissions:    []string{constants.PERMISSION_ORG_READ},
 		}, nil).Once()
-	s.rolesRepo.On("UpdateRole", s.ctx, mock.AnythingOfType("*models.Role")).Return(nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.rolesRepo.On("Update", s.ctx, mock.AnythingOfType("*models.Role")).Return(nil).Once()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
-	role, err := s.svc.UpdateRole(s.ctx, &role_service.UpdateRoleRequest{
+	role, err := s.svc.Update(s.ctx, &role_service.UpdateRequest{
 		OrganizationID: s.orgID.String(),
 		RoleID:         roleID.String(),
 		Name:           "New",

@@ -14,7 +14,7 @@ import (
 func (s *service) userProfileWithLegalAcceptances(ctx context.Context, user *models.User) (*UserProfile, error) {
 	profile := &UserProfile{User: *user}
 
-	terms, err := s.legalDocumentAcceptancesRepo.GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType(
+	terms, err := s.legalDocumentAcceptancesRepo.GetLatestByUserIDAndDocumentType(
 		ctx, user.ID.String(), constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE,
 	)
 	if err != nil && !platform_repository.IsNotFound(err) {
@@ -26,7 +26,7 @@ func (s *service) userProfileWithLegalAcceptances(ctx context.Context, user *mod
 		profile.TermsAcceptedAt = &acceptedAt
 	}
 
-	privacy, err := s.legalDocumentAcceptancesRepo.GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType(
+	privacy, err := s.legalDocumentAcceptancesRepo.GetLatestByUserIDAndDocumentType(
 		ctx, user.ID.String(), constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY,
 	)
 	if err != nil && !platform_repository.IsNotFound(err) {
@@ -43,7 +43,7 @@ func (s *service) userProfileWithLegalAcceptances(ctx context.Context, user *mod
 
 func (s *service) createLegalDocumentAcceptance(
 	ctx context.Context,
-	repo user_legal_document_acceptance_repository.UserLegalDocumentAcceptanceRepository,
+	repo user_legal_document_acceptance_repository.Repository,
 	userID uuid.UUID,
 	documentType, documentVersion string,
 ) error {
@@ -51,7 +51,7 @@ func (s *service) createLegalDocumentAcceptance(
 	if err != nil {
 		return err
 	}
-	return repo.CreateUserLegalDocumentAcceptance(ctx, &models.UserLegalDocumentAcceptance{
+	return repo.Create(ctx, &models.UserLegalDocumentAcceptance{
 		ModelBase: chi_types.ModelBase{
 			ID: acceptanceID,
 		},
@@ -63,7 +63,7 @@ func (s *service) createLegalDocumentAcceptance(
 
 func (s *service) createLegalDocumentAcceptances(
 	ctx context.Context,
-	repo user_legal_document_acceptance_repository.UserLegalDocumentAcceptanceRepository,
+	repo user_legal_document_acceptance_repository.Repository,
 	userID uuid.UUID,
 	termsVersion, privacyPolicyVersion string,
 ) error {

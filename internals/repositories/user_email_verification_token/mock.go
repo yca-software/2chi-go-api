@@ -8,19 +8,19 @@ import (
 	chi_repository "github.com/yca-software/2chi-go-repository"
 )
 
-type MockUserEmailVerificationTokenRepository struct {
+type MockRepository struct {
 	mock.Mock
 }
 
-func (m *MockUserEmailVerificationTokenRepository) WithTx(_ chi_repository.Tx) UserEmailVerificationTokenRepository {
+func (m *MockRepository) WithTx(_ chi_repository.Tx) Repository {
 	return m
 }
 
-func (m *MockUserEmailVerificationTokenRepository) CreateEmailVerificationToken(ctx context.Context, token *models.UserEmailVerificationToken) error {
+func (m *MockRepository) Create(ctx context.Context, token *models.UserEmailVerificationToken) error {
 	return m.Called(ctx, token).Error(0)
 }
 
-func (m *MockUserEmailVerificationTokenRepository) GetEmailVerificationTokenByHash(ctx context.Context, hash string) (*models.UserEmailVerificationToken, error) {
+func (m *MockRepository) GetByHash(ctx context.Context, hash string) (*models.UserEmailVerificationToken, error) {
 	args := m.Called(ctx, hash)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -28,10 +28,10 @@ func (m *MockUserEmailVerificationTokenRepository) GetEmailVerificationTokenByHa
 	return args.Get(0).(*models.UserEmailVerificationToken), args.Error(1)
 }
 
-func (m *MockUserEmailVerificationTokenRepository) MarkEmailVerificationTokenAsUsed(ctx context.Context, tokenID string) error {
+func (m *MockRepository) MarkAsUsed(ctx context.Context, tokenID string) error {
 	return m.Called(ctx, tokenID).Error(0)
 }
 
-func (m *MockUserEmailVerificationTokenRepository) CleanupStaleUnusedEmailVerificationTokens(ctx context.Context) error {
+func (m *MockRepository) CleanupStaleUnused(ctx context.Context) error {
 	return m.Called(ctx).Error(0)
 }

@@ -13,7 +13,7 @@ func RunWorkerConsumers(ctx context.Context, deps *WorkerDeps) error {
 		cleanup_runner.CleanupStep{Name: "organizations.CleanupArchived", Run: deps.Services.Organization.CleanupArchivedOrganizations},
 		cleanup_runner.CleanupStep{Name: "users.CleanupStaleUnusedUserTokens", Run: deps.Services.User.CleanupStaleUnusedUserTokens},
 		cleanup_runner.CleanupStep{Name: "users.CleanupArchivedUsers", Run: deps.Services.User.CleanupArchivedUsers},
-		cleanup_runner.CleanupStep{Name: "invitations.CleanupStale", Run: deps.Services.Invitation.CleanupStaleInvitations},
+		cleanup_runner.CleanupStep{Name: "invitations.CleanupStale", Run: deps.Services.Invitation.CleanupStale},
 	)
 
 	var workers errgroup.Group

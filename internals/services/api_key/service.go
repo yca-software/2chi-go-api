@@ -36,10 +36,10 @@ type Dependencies struct {
 }
 
 type Service interface {
-	CreateAPIKey(ctx context.Context, req *CreateAPIKeyRequest, access *chi_types.AccessInfo) (*CreateAPIKeyResponse, error)
-	UpdateAPIKey(ctx context.Context, req *UpdateAPIKeyRequest, access *chi_types.AccessInfo) (*models.APIKey, error)
-	DeleteAPIKey(ctx context.Context, req *DeleteAPIKeyRequest, access *chi_types.AccessInfo) error
-	ListAPIKeys(ctx context.Context, req *ListAPIKeysRequest, access *chi_types.AccessInfo) (*[]models.APIKey, error)
+	Create(ctx context.Context, req *CreateRequest, access *chi_types.AccessInfo) (*CreateResponse, error)
+	Update(ctx context.Context, req *UpdateRequest, access *chi_types.AccessInfo) (*models.APIKey, error)
+	Delete(ctx context.Context, req *DeleteRequest, access *chi_types.AccessInfo) error
+	List(ctx context.Context, req *ListRequest, access *chi_types.AccessInfo) (*[]models.APIKey, error)
 }
 
 type service struct {
@@ -50,9 +50,9 @@ type service struct {
 	generateToken       func() (string, error)
 	hashToken           func(token string) string
 	authorizer          *authz.Authorizer
-	billingAccountsRepo billing_account_repository.OrganizationBillingAccountsRepository
-	apiKeysRepo         api_key_repository.APIKeysRepository
-	organizationsRepo   organization_repository.OrganizationsRepository
+	billingAccountsRepo billing_account_repository.Repository
+	apiKeysRepo         api_key_repository.Repository
+	organizationsRepo   organization_repository.Repository
 	auditService        audit_service.Service
 }
 
@@ -72,7 +72,7 @@ func New(deps Dependencies) Service {
 	}
 }
 
-func (s *service) CreateAPIKey(ctx context.Context, req *CreateAPIKeyRequest, access *chi_types.AccessInfo) (*CreateAPIKeyResponse, error) {
+func (s *service) Create(ctx context.Context, req *CreateRequest, access *chi_types.AccessInfo) (*CreateResponse, error) {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
@@ -83,11 +83,7 @@ func (s *service) CreateAPIKey(ctx context.Context, req *CreateAPIKeyRequest, ac
 		}
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return nil, err
-	}
-
-	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billingAccount, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -113,8 +109,7 @@ func (s *service) CreateAPIKey(ctx context.Context, req *CreateAPIKeyRequest, ac
 
 	apiKey := &models.APIKey{
 		ModelBase: chi_types.ModelBase{
-			ID:        apiKeyID,
-			CreatedAt: s.now(),
+			ID: apiKeyID,
 		},
 		OrganizationID: uuid.MustParse(req.OrganizationID),
 		Name:           req.Name,
@@ -124,7 +119,7 @@ func (s *service) CreateAPIKey(ctx context.Context, req *CreateAPIKeyRequest, ac
 		ExpiresAt:      req.ExpiresAt,
 	}
 
-	if err := s.apiKeysRepo.CreateAPIKey(ctx, apiKey); err != nil {
+	if err := s.apiKeysRepo.Create(ctx, apiKey); err != nil {
 		return nil, err
 	}
 
@@ -134,13 +129,13 @@ func (s *service) CreateAPIKey(ctx context.Context, req *CreateAPIKeyRequest, ac
 		"expiresAt":   apiKey.ExpiresAt,
 	}))
 
-	return &CreateAPIKeyResponse{
+	return &CreateResponse{
 		APIKey: apiKey,
 		Secret: constants.API_KEY_PREFIX + rawKey,
 	}, nil
 }
 
-func (s *service) UpdateAPIKey(ctx context.Context, req *UpdateAPIKeyRequest, access *chi_types.AccessInfo) (*models.APIKey, error) {
+func (s *service) Update(ctx context.Context, req *UpdateRequest, access *chi_types.AccessInfo) (*models.APIKey, error) {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
@@ -151,11 +146,7 @@ func (s *service) UpdateAPIKey(ctx context.Context, req *UpdateAPIKeyRequest, ac
 		}
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return nil, err
-	}
-
-	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billingAccount, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +158,7 @@ func (s *service) UpdateAPIKey(ctx context.Context, req *UpdateAPIKeyRequest, ac
 		return nil, err
 	}
 
-	apiKey, err := s.apiKeysRepo.GetAPIKeyByID(ctx, req.OrganizationID, req.APIKeyID)
+	apiKey, err := s.apiKeysRepo.GetByID(ctx, req.OrganizationID, req.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +171,7 @@ func (s *service) UpdateAPIKey(ctx context.Context, req *UpdateAPIKeyRequest, ac
 	apiKey.Name = req.Name
 	apiKey.Permissions = req.Permissions
 
-	if err := s.apiKeysRepo.UpdateAPIKey(ctx, apiKey); err != nil {
+	if err := s.apiKeysRepo.Update(ctx, apiKey); err != nil {
 		return nil, err
 	}
 
@@ -192,16 +183,12 @@ func (s *service) UpdateAPIKey(ctx context.Context, req *UpdateAPIKeyRequest, ac
 	return apiKey, nil
 }
 
-func (s *service) DeleteAPIKey(ctx context.Context, req *DeleteAPIKeyRequest, access *chi_types.AccessInfo) error {
+func (s *service) Delete(ctx context.Context, req *DeleteRequest, access *chi_types.AccessInfo) error {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return err
-	}
-
-	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billingAccount, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -213,12 +200,12 @@ func (s *service) DeleteAPIKey(ctx context.Context, req *DeleteAPIKeyRequest, ac
 		return err
 	}
 
-	apiKey, err := s.apiKeysRepo.GetAPIKeyByID(ctx, req.OrganizationID, req.APIKeyID)
+	apiKey, err := s.apiKeysRepo.GetByID(ctx, req.OrganizationID, req.APIKeyID)
 	if err != nil {
 		return err
 	}
 
-	if err := s.apiKeysRepo.DeleteAPIKey(ctx, req.OrganizationID, req.APIKeyID); err != nil {
+	if err := s.apiKeysRepo.Delete(ctx, req.OrganizationID, req.APIKeyID); err != nil {
 		return err
 	}
 
@@ -231,16 +218,12 @@ func (s *service) DeleteAPIKey(ctx context.Context, req *DeleteAPIKeyRequest, ac
 	return nil
 }
 
-func (s *service) ListAPIKeys(ctx context.Context, req *ListAPIKeysRequest, access *chi_types.AccessInfo) (*[]models.APIKey, error) {
+func (s *service) List(ctx context.Context, req *ListRequest, access *chi_types.AccessInfo) (*[]models.APIKey, error) {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return nil, err
-	}
-
-	billingAccount, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billingAccount, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +235,7 @@ func (s *service) ListAPIKeys(ctx context.Context, req *ListAPIKeysRequest, acce
 		return nil, err
 	}
 
-	return s.apiKeysRepo.ListAPIKeysByOrganizationID(ctx, req.OrganizationID)
+	return s.apiKeysRepo.ListByOrganizationID(ctx, req.OrganizationID)
 }
 
 func (s *service) logAPIKeyAudit(ctx context.Context, access *chi_types.AccessInfo, orgID, action string, apiKey *models.APIKey, payload map[string]any) {
@@ -262,7 +245,7 @@ func (s *service) logAPIKeyAudit(ctx context.Context, access *chi_types.AccessIn
 		return
 	}
 	auditRaw := json.RawMessage(auditPayload)
-	if _, err := s.auditService.CreateAuditLog(ctx, &audit_service.CreateAuditLogRequest{
+	if _, err := s.auditService.Create(ctx, &audit_service.CreateRequest{
 		OrganizationID: orgID,
 		Action:         action,
 		ResourceType:   constants.RESOURCE_TYPE_API_KEY,

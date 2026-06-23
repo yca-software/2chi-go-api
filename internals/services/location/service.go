@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	chi_error "github.com/yca-software/2chi-go-error"
 	chi_google "github.com/yca-software/2chi-go-google/maps"
+	chi_error "github.com/yca-software/2chi-go-error"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 )
 
@@ -33,14 +33,14 @@ func New(deps Dependencies) Service {
 
 func (s *service) AutocompleteLocation(ctx context.Context, input string) (*chi_google.AutocompleteLocationResponse, error) {
 	if s.maps == nil {
-		return nil, chi_error.NewServiceUnavailableError(errors.New("location search not configured"), "LocationSearchUnavailable", nil)
+		return nil, chi_error.NewServiceUnavailableError(errors.New("maps not configured"), "LocationSearchUnavailable", nil)
 	}
 	return s.maps.AutocompleteLocation(ctx, input)
 }
 
 func (s *service) GetLocationData(ctx context.Context, placeID string) (*chi_google.LocationData, error) {
 	if s.maps == nil {
-		return nil, chi_error.NewServiceUnavailableError(errors.New("location search not configured"), "LocationSearchUnavailable", nil)
+		return nil, chi_error.NewServiceUnavailableError(errors.New("maps not configured"), "LocationSearchUnavailable", nil)
 	}
 	return s.maps.GetLocationData(ctx, placeID)
 }

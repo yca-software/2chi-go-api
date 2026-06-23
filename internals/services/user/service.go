@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	chi_aws_ses "github.com/yca-software/2chi-go-aws/ses"
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
+	"github.com/yca-software/2chi-go-api/internals/packages/authz"
+	platform_repository "github.com/yca-software/2chi-go-api/internals/packages/repository"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	admin_access_repository "github.com/yca-software/2chi-go-api/internals/repositories/admin_access"
 	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
@@ -18,8 +19,7 @@ import (
 	user_legal_document_acceptance_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_legal_document_acceptance"
 	user_password_reset_token_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_password_reset_token"
 	user_refresh_token_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_refresh_token"
-	"github.com/yca-software/2chi-go-api/internals/packages/authz"
-	platform_repository "github.com/yca-software/2chi-go-api/internals/packages/repository"
+	chi_aws_ses "github.com/yca-software/2chi-go-aws/ses"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_localizer "github.com/yca-software/2chi-go-localizer"
 	chi_logger "github.com/yca-software/2chi-go-logger"
@@ -73,27 +73,27 @@ type Service interface {
 }
 
 type service struct {
-	generateID                  func() (uuid.UUID, error)
-	now                         func() time.Time
-	validator                   chi_validator.Validator
-	logger                      chi_logger.Logger
-	passwordHashFn              func(password string) (string, error)
-	generateToken               func() (string, error)
-	hashToken                   func(token string) string
-	runInTx                     repositories.TxRunner
-	authorizer                  *authz.Authorizer
-	sessionCache                *authz.SessionCache
-	usersRepo                   user_repository.UsersRepository
-	adminAccessRepo             admin_access_repository.AdminAccessRepository
-	organizationMembersRepo     organization_member_repository.OrganizationMembersRepository
-	userRefreshTokensRepo       user_refresh_token_repository.UserRefreshTokenRepository
-	userPasswordResetTokensRepo user_password_reset_token_repository.UserPasswordResetTokenRepository
-	userEmailVerificationTokensRepo user_email_verification_token_repository.UserEmailVerificationTokenRepository
-	legalDocumentAcceptancesRepo    user_legal_document_acceptance_repository.UserLegalDocumentAcceptanceRepository
-	appURL                      string
-	localizer                   chi_localizer.Localizer
-	emailSender                 chi_aws_ses.SES
-	emailTemplates              *chi_template.HTML
+	generateID                      func() (uuid.UUID, error)
+	now                             func() time.Time
+	validator                       chi_validator.Validator
+	logger                          chi_logger.Logger
+	passwordHashFn                  func(password string) (string, error)
+	generateToken                   func() (string, error)
+	hashToken                       func(token string) string
+	runInTx                         repositories.TxRunner
+	authorizer                      *authz.Authorizer
+	sessionCache                    *authz.SessionCache
+	usersRepo                       user_repository.Repository
+	adminAccessRepo                 admin_access_repository.Repository
+	organizationMembersRepo         organization_member_repository.Repository
+	userRefreshTokensRepo           user_refresh_token_repository.Repository
+	userPasswordResetTokensRepo     user_password_reset_token_repository.Repository
+	userEmailVerificationTokensRepo user_email_verification_token_repository.Repository
+	legalDocumentAcceptancesRepo    user_legal_document_acceptance_repository.Repository
+	appURL                          string
+	localizer                       chi_localizer.Localizer
+	emailSender                     chi_aws_ses.SES
+	emailTemplates                  *chi_template.HTML
 }
 
 func New(deps Dependencies) Service {
@@ -138,7 +138,7 @@ func (s *service) AcceptTerms(ctx context.Context, req *AcceptTermsRequest, acce
 		return nil, err
 	}
 
-	user, err := s.usersRepo.GetUserByID(ctx, req.UserID)
+	user, err := s.usersRepo.GetByID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func (s *service) ChangePassword(ctx context.Context, req *ChangePasswordRequest
 		return err
 	}
 
-	user, err := s.usersRepo.GetUserByID(ctx, req.UserID)
+	user, err := s.usersRepo.GetByID(ctx, req.UserID)
 	if err != nil {
 		return err
 	}
@@ -185,10 +185,10 @@ func (s *service) ChangePassword(ctx context.Context, req *ChangePasswordRequest
 
 	user.Password = hashedPassword
 
-	if err := s.usersRepo.UpdateUser(ctx, user); err != nil {
+	if err := s.usersRepo.Update(ctx, user); err != nil {
 		return err
 	}
-	if err := s.userRefreshTokensRepo.RevokeAllRefreshTokensByUserID(ctx, req.UserID, nil); err != nil {
+	if err := s.userRefreshTokensRepo.RevokeAllByUserID(ctx, req.UserID, nil); err != nil {
 		return err
 	}
 	return s.sessionCache.InvalidateSession(ctx, req.UserID)
@@ -203,7 +203,7 @@ func (s *service) UpdateProfile(ctx context.Context, req *UpdateProfileRequest, 
 		return nil, err
 	}
 
-	user, err := s.usersRepo.GetUserByID(ctx, req.UserID)
+	user, err := s.usersRepo.GetByID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +211,7 @@ func (s *service) UpdateProfile(ctx context.Context, req *UpdateProfileRequest, 
 	user.FirstName = req.FirstName
 	user.LastName = req.LastName
 
-	return user, s.usersRepo.UpdateUser(ctx, user)
+	return user, s.usersRepo.Update(ctx, user)
 }
 
 func (s *service) UpdateLanguage(ctx context.Context, req *UpdateLanguageRequest, access *chi_types.AccessInfo) (*models.User, error) {
@@ -223,14 +223,14 @@ func (s *service) UpdateLanguage(ctx context.Context, req *UpdateLanguageRequest
 		return nil, err
 	}
 
-	user, err := s.usersRepo.GetUserByID(ctx, req.UserID)
+	user, err := s.usersRepo.GetByID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
 
 	user.Language = req.Language
 
-	return user, s.usersRepo.UpdateUser(ctx, user)
+	return user, s.usersRepo.Update(ctx, user)
 }
 
 func (s *service) ArchiveUser(ctx context.Context, req *ArchiveUserRequest, access *chi_types.AccessInfo) error {
@@ -242,12 +242,12 @@ func (s *service) ArchiveUser(ctx context.Context, req *ArchiveUserRequest, acce
 		return err
 	}
 
-	user, err := s.usersRepo.GetUserByID(ctx, req.UserID)
+	user, err := s.usersRepo.GetByID(ctx, req.UserID)
 	if err != nil {
 		return err
 	}
 
-	return s.usersRepo.ArchiveUser(ctx, user)
+	return s.usersRepo.Archive(ctx, user)
 }
 
 func (s *service) RestoreUser(ctx context.Context, req *RestoreUserRequest, access *chi_types.AccessInfo) (*models.User, error) {
@@ -259,12 +259,12 @@ func (s *service) RestoreUser(ctx context.Context, req *RestoreUserRequest, acce
 		return nil, err
 	}
 
-	user, err := s.usersRepo.GetUserByIDIncludeArchived(ctx, req.UserID)
+	user, err := s.usersRepo.GetByIDIncludeArchived(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	return user, s.usersRepo.RestoreUser(ctx, req.UserID)
+	return user, s.usersRepo.Restore(ctx, req.UserID)
 }
 
 func (s *service) RevokeUserRefreshToken(ctx context.Context, req *RevokeUserRefreshTokenRequest, access *chi_types.AccessInfo) error {
@@ -276,7 +276,7 @@ func (s *service) RevokeUserRefreshToken(ctx context.Context, req *RevokeUserRef
 		return err
 	}
 
-	if err := s.userRefreshTokensRepo.RevokeRefreshTokenByID(ctx, req.UserID, req.RefreshTokenID); err != nil {
+	if err := s.userRefreshTokensRepo.RevokeByID(ctx, req.UserID, req.RefreshTokenID); err != nil {
 		return err
 	}
 
@@ -296,11 +296,11 @@ func (s *service) RevokeUserAdminAccess(ctx context.Context, req *RevokeUserAdmi
 		return chi_error.NewForbiddenError(errors.New("cannot revoke own admin access"), "CannotRevokeOwnAdminAccess", nil)
 	}
 
-	if _, err := s.adminAccessRepo.GetAdminAccessByUserID(ctx, req.UserID); err != nil {
+	if _, err := s.adminAccessRepo.GetByUserID(ctx, req.UserID); err != nil {
 		return err
 	}
 
-	if err := s.adminAccessRepo.DeleteAdminAccessByUserID(ctx, req.UserID); err != nil {
+	if err := s.adminAccessRepo.DeleteByUserID(ctx, req.UserID); err != nil {
 		return err
 	}
 
@@ -317,10 +317,10 @@ func (s *service) RevokeUserAllRefreshTokens(ctx context.Context, req *RevokeUse
 	}
 
 	if req.KeepRefreshToken == "" {
-		return s.userRefreshTokensRepo.RevokeAllRefreshTokensByUserID(ctx, req.UserID, nil)
+		return s.userRefreshTokensRepo.RevokeAllByUserID(ctx, req.UserID, nil)
 	}
 
-	current, err := s.userRefreshTokensRepo.GetRefreshTokenByHash(ctx, s.hashToken(req.KeepRefreshToken))
+	current, err := s.userRefreshTokensRepo.GetByHash(ctx, s.hashToken(req.KeepRefreshToken))
 	if err != nil {
 		if platform_repository.IsNotFound(err) {
 			return chi_error.NewUnprocessableEntityError(errors.New("refresh token to keep not found"), "RefreshTokenToKeepNotFound", nil)
@@ -337,7 +337,7 @@ func (s *service) RevokeUserAllRefreshTokens(ctx context.Context, req *RevokeUse
 	}
 
 	excludeID := current.ID.String()
-	return s.userRefreshTokensRepo.RevokeAllRefreshTokensByUserID(ctx, req.UserID, &excludeID)
+	return s.userRefreshTokensRepo.RevokeAllByUserID(ctx, req.UserID, &excludeID)
 }
 
 func (s *service) GetUser(ctx context.Context, req *GetUserRequest, access *chi_types.AccessInfo) (*GetUserResponse, error) {
@@ -349,17 +349,17 @@ func (s *service) GetUser(ctx context.Context, req *GetUserRequest, access *chi_
 		return nil, err
 	}
 
-	user, err := s.usersRepo.GetUserByID(ctx, req.UserID)
+	user, err := s.usersRepo.GetByID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	roles, err := s.organizationMembersRepo.ListByUserIDWithRole(ctx, req.UserID)
+	roles, err := s.organizationMembersRepo.ListByUserID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	adminAccess, err := s.adminAccessRepo.GetAdminAccessByUserID(ctx, req.UserID)
+	adminAccess, err := s.adminAccessRepo.GetByUserID(ctx, req.UserID)
 	if err != nil {
 		if platform_repository.IsNotFound(err) {
 			profile, profileErr := s.userProfileWithLegalAcceptances(ctx, user)
@@ -388,7 +388,7 @@ func (s *service) ResendVerificationEmail(ctx context.Context, req *ResendVerifi
 		return err
 	}
 
-	user, err := s.usersRepo.GetUserByID(ctx, req.UserID)
+	user, err := s.usersRepo.GetByID(ctx, req.UserID)
 	if err != nil {
 		return err
 	}
@@ -408,7 +408,7 @@ func (s *service) ResendVerificationEmail(ctx context.Context, req *ResendVerifi
 	}
 
 	now := s.now()
-	if err := s.userEmailVerificationTokensRepo.CreateEmailVerificationToken(ctx, &models.UserEmailVerificationToken{
+	if err := s.userEmailVerificationTokensRepo.Create(ctx, &models.UserEmailVerificationToken{
 		ModelBase: chi_types.ModelBase{
 			ID: verificationTokenID,
 		},
@@ -457,7 +457,7 @@ func (s *service) ListUsers(ctx context.Context, req *ListUsersRequest, access *
 	}
 
 	limit := req.Limit + 1
-	users, err := s.usersRepo.SearchUsers(ctx, req.SearchPhrase, req.ArchiveFilter, limit, req.Offset)
+	users, err := s.usersRepo.Search(ctx, req.SearchPhrase, req.ArchiveFilter, limit, req.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -480,24 +480,24 @@ func (s *service) ListUserActiveRefreshTokens(ctx context.Context, req *ListUser
 		return nil, err
 	}
 
-	return s.userRefreshTokensRepo.GetActiveRefreshTokensByUserID(ctx, req.UserID)
+	return s.userRefreshTokensRepo.ListActiveByUserID(ctx, req.UserID)
 }
 
 func (s *service) CleanupArchivedUsers(ctx context.Context) error {
-	return s.usersRepo.CleanupArchivedUsers(ctx)
+	return s.usersRepo.CleanupArchived(ctx)
 }
 
 func (s *service) CleanupStaleUnusedUserTokens(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		return s.userRefreshTokensRepo.CleanupStaleUnusedRefreshTokens(gctx)
+		return s.userRefreshTokensRepo.CleanupStaleUnused(gctx)
 	})
 	g.Go(func() error {
-		return s.userPasswordResetTokensRepo.CleanupStaleUnusedPasswordResetTokens(gctx)
+		return s.userPasswordResetTokensRepo.CleanupStaleUnused(gctx)
 	})
 	g.Go(func() error {
-		return s.userEmailVerificationTokensRepo.CleanupStaleUnusedEmailVerificationTokens(gctx)
+		return s.userEmailVerificationTokensRepo.CleanupStaleUnused(gctx)
 	})
 
 	return g.Wait()

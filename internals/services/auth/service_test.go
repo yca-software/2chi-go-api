@@ -13,11 +13,11 @@ import (
 	"github.com/yca-software/2chi-go-api/internals/models"
 	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
+	admin_access_repository "github.com/yca-software/2chi-go-api/internals/repositories/admin_access"
 	impersonation_session_repository "github.com/yca-software/2chi-go-api/internals/repositories/impersonation_session"
 	invitation_repository "github.com/yca-software/2chi-go-api/internals/repositories/invitation"
 	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
 	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
-	admin_access_repository "github.com/yca-software/2chi-go-api/internals/repositories/admin_access"
 	user_repository "github.com/yca-software/2chi-go-api/internals/repositories/user"
 	user_email_verification_token_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_email_verification_token"
 	user_legal_document_acceptance_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_legal_document_acceptance"
@@ -39,16 +39,16 @@ type AuthServiceSuite struct {
 	suite.Suite
 	ctx               context.Context
 	now               time.Time
-	usersRepo         *user_repository.MockUsersRepository
-	refreshTokensRepo *user_refresh_token_repository.MockUserRefreshTokenRepository
-	passwordResetRepo *user_password_reset_token_repository.MockUserPasswordResetTokenRepository
-	emailVerifyRepo   *user_email_verification_token_repository.MockUserEmailVerificationTokenRepository
-	legalAcceptRepo   *user_legal_document_acceptance_repository.MockUserLegalDocumentAcceptanceRepository
-	impersonationRepo *impersonation_session_repository.MockImpersonationSessionsRepository
-	invitationsRepo   *invitation_repository.MockInvitationsRepository
-	orgsRepo          *organization_repository.MockOrganizationsRepository
-	adminAccessRepo   *admin_access_repository.MockAdminAccessRepository
-	membersRepo       *organization_member_repository.MockOrganizationMembersRepository
+	usersRepo         *user_repository.MockRepository
+	refreshTokensRepo *user_refresh_token_repository.MockRepository
+	passwordResetRepo *user_password_reset_token_repository.MockRepository
+	emailVerifyRepo   *user_email_verification_token_repository.MockRepository
+	legalAcceptRepo   *user_legal_document_acceptance_repository.MockRepository
+	impersonationRepo *impersonation_session_repository.MockRepository
+	invitationsRepo   *invitation_repository.MockRepository
+	orgsRepo          *organization_repository.MockRepository
+	adminAccessRepo   *admin_access_repository.MockRepository
+	membersRepo       *organization_member_repository.MockRepository
 	sessionCache      *authz.SessionCache
 	logger            *chi_logger.MockLogger
 	svc               auth_service.Service
@@ -61,16 +61,16 @@ func TestAuthServiceSuite(t *testing.T) {
 func (s *AuthServiceSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.now = fixedNow()
-	s.usersRepo = &user_repository.MockUsersRepository{}
-	s.refreshTokensRepo = &user_refresh_token_repository.MockUserRefreshTokenRepository{}
-	s.passwordResetRepo = &user_password_reset_token_repository.MockUserPasswordResetTokenRepository{}
-	s.emailVerifyRepo = &user_email_verification_token_repository.MockUserEmailVerificationTokenRepository{}
-	s.legalAcceptRepo = &user_legal_document_acceptance_repository.MockUserLegalDocumentAcceptanceRepository{}
-	s.impersonationRepo = &impersonation_session_repository.MockImpersonationSessionsRepository{}
-	s.invitationsRepo = &invitation_repository.MockInvitationsRepository{}
-	s.orgsRepo = &organization_repository.MockOrganizationsRepository{}
-	s.adminAccessRepo = &admin_access_repository.MockAdminAccessRepository{}
-	s.membersRepo = &organization_member_repository.MockOrganizationMembersRepository{}
+	s.usersRepo = &user_repository.MockRepository{}
+	s.refreshTokensRepo = &user_refresh_token_repository.MockRepository{}
+	s.passwordResetRepo = &user_password_reset_token_repository.MockRepository{}
+	s.emailVerifyRepo = &user_email_verification_token_repository.MockRepository{}
+	s.legalAcceptRepo = &user_legal_document_acceptance_repository.MockRepository{}
+	s.impersonationRepo = &impersonation_session_repository.MockRepository{}
+	s.invitationsRepo = &invitation_repository.MockRepository{}
+	s.orgsRepo = &organization_repository.MockRepository{}
+	s.adminAccessRepo = &admin_access_repository.MockRepository{}
+	s.membersRepo = &organization_member_repository.MockRepository{}
 	s.sessionCache = authz.NewTestSessionCache(s.T(), time.Hour)
 	s.logger = &chi_logger.MockLogger{}
 	configureMockLogger(s.logger)
@@ -85,16 +85,16 @@ func (s *AuthServiceSuite) SetupTest() {
 		HashToken:      testTokenHasher.Hash,
 		Authorizer:     authz.NewAuthorizer(func() time.Time { return s.now }),
 		Repositories: &repositories.Repositories{
-			Users:                       s.usersRepo,
-			UserRefreshTokens:           s.refreshTokensRepo,
-			UserPasswordResetTokens:     s.passwordResetRepo,
-			UserEmailVerificationTokens: s.emailVerifyRepo,
+			Users:                        s.usersRepo,
+			UserRefreshTokens:            s.refreshTokensRepo,
+			UserPasswordResetTokens:      s.passwordResetRepo,
+			UserEmailVerificationTokens:  s.emailVerifyRepo,
 			UserLegalDocumentAcceptances: s.legalAcceptRepo,
-			ImpersonationSessions:       s.impersonationRepo,
-			Invitations:                 s.invitationsRepo,
-			Organizations:               s.orgsRepo,
-			AdminAccess:                 s.adminAccessRepo,
-			OrganizationMembers:         s.membersRepo,
+			ImpersonationSessions:        s.impersonationRepo,
+			Invitations:                  s.invitationsRepo,
+			Organizations:                s.orgsRepo,
+			AdminAccess:                  s.adminAccessRepo,
+			OrganizationMembers:          s.membersRepo,
 		},
 		RunInTx:           inlineRunInTx,
 		SessionCache:      s.sessionCache,
@@ -105,15 +105,15 @@ func (s *AuthServiceSuite) SetupTest() {
 
 func (s *AuthServiceSuite) TestSignUp_Validation_InvalidEmail() {
 	resp, err := s.svc.SignUp(s.ctx, &auth_service.SignUpRequest{
-		FirstName:    "Ada",
-		LastName:     "Lovelace",
-		Email:        "not-an-email",
-		Password:     "password123",
+		FirstName:            "Ada",
+		LastName:             "Lovelace",
+		Email:                "not-an-email",
+		Password:             "password123",
 		TermsVersion:         "1.0.0",
 		PrivacyPolicyVersion: "1.0.0",
-		Language:     "en",
-		IPAddress:    "127.0.0.1",
-		UserAgent:    "test",
+		Language:             "en",
+		IPAddress:            "127.0.0.1",
+		UserAgent:            "test",
 	})
 	s.Error(err)
 	s.Nil(resp)
@@ -121,7 +121,7 @@ func (s *AuthServiceSuite) TestSignUp_Validation_InvalidEmail() {
 
 func (s *AuthServiceSuite) TestSignUp_EmailAlreadyInUse() {
 	existingUserID := uuid.New()
-	s.usersRepo.On("GetUserByEmail", s.ctx, "taken@example.com").
+	s.usersRepo.On("GetByEmail", s.ctx, "taken@example.com").
 		Return(&models.User{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: existingUserID},
@@ -130,15 +130,15 @@ func (s *AuthServiceSuite) TestSignUp_EmailAlreadyInUse() {
 		}, nil).Once()
 
 	resp, err := s.svc.SignUp(s.ctx, &auth_service.SignUpRequest{
-		FirstName:    "Ada",
-		LastName:     "Lovelace",
-		Email:        "taken@example.com",
-		Password:     "password123",
+		FirstName:            "Ada",
+		LastName:             "Lovelace",
+		Email:                "taken@example.com",
+		Password:             "password123",
 		TermsVersion:         "1.0.0",
 		PrivacyPolicyVersion: "1.0.0",
-		Language:     "en",
-		IPAddress:    "127.0.0.1",
-		UserAgent:    "test",
+		Language:             "en",
+		IPAddress:            "127.0.0.1",
+		UserAgent:            "test",
 	})
 	s.Error(err)
 	s.Nil(resp)
@@ -149,24 +149,24 @@ func (s *AuthServiceSuite) TestSignUp_EmailAlreadyInUse() {
 
 func (s *AuthServiceSuite) TestSignUp_Success_RecordsBothLegalAcceptancesInTransaction() {
 	signUpUserID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
-	s.usersRepo.On("GetUserByEmail", s.ctx, "new@example.com").
+	s.usersRepo.On("GetByEmail", s.ctx, "new@example.com").
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
-	s.usersRepo.On("CreateUser", s.ctx, mock.MatchedBy(func(u *models.User) bool {
+	s.usersRepo.On("Create", s.ctx, mock.MatchedBy(func(u *models.User) bool {
 		return u.ID == signUpUserID && u.Email == "new@example.com"
 	})).Return(nil).Once()
-	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+	s.legalAcceptRepo.On("Create", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
 		return a.UserID == signUpUserID &&
 			a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE &&
 			a.DocumentVersion == "1.0.0"
 	})).Return(nil).Once()
-	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+	s.legalAcceptRepo.On("Create", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
 		return a.UserID == signUpUserID &&
 			a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY &&
 			a.DocumentVersion == "1.0.0"
 	})).Return(nil).Once()
 	s.mockAuthSessionLoad(signUpUserID, "new@example.com")
-	s.refreshTokensRepo.On("CreateRefreshToken", s.ctx, mock.AnythingOfType("*models.UserRefreshToken")).Return(nil).Once()
-	s.emailVerifyRepo.On("CreateEmailVerificationToken", s.ctx, mock.AnythingOfType("*models.UserEmailVerificationToken")).Return(nil).Once()
+	s.refreshTokensRepo.On("Create", s.ctx, mock.AnythingOfType("*models.UserRefreshToken")).Return(nil).Once()
+	s.emailVerifyRepo.On("Create", s.ctx, mock.AnythingOfType("*models.UserEmailVerificationToken")).Return(nil).Once()
 
 	signUpUserIDCalls := 0
 	svc := auth_service.New(auth_service.Dependencies{
@@ -177,24 +177,24 @@ func (s *AuthServiceSuite) TestSignUp_Success_RecordsBothLegalAcceptancesInTrans
 			}
 			return uuid.NewV7()
 		},
-		Now:        func() time.Time { return s.now },
-		Validator:  chi_validator.New(),
-		Logger:     s.logger,
+		Now:            func() time.Time { return s.now },
+		Validator:      chi_validator.New(),
+		Logger:         s.logger,
 		PasswordHashFn: chi_password.Hash,
 		GenerateToken:  chi_token.GenerateOpaqueToken,
 		HashToken:      testTokenHasher.Hash,
 		Authorizer:     authz.NewAuthorizer(func() time.Time { return s.now }),
 		Repositories: &repositories.Repositories{
-			Users:                       s.usersRepo,
-			UserRefreshTokens:           s.refreshTokensRepo,
-			UserPasswordResetTokens:     s.passwordResetRepo,
-			UserEmailVerificationTokens: s.emailVerifyRepo,
+			Users:                        s.usersRepo,
+			UserRefreshTokens:            s.refreshTokensRepo,
+			UserPasswordResetTokens:      s.passwordResetRepo,
+			UserEmailVerificationTokens:  s.emailVerifyRepo,
 			UserLegalDocumentAcceptances: s.legalAcceptRepo,
-			ImpersonationSessions:       s.impersonationRepo,
-			Invitations:                 s.invitationsRepo,
-			Organizations:               s.orgsRepo,
-			AdminAccess:                 s.adminAccessRepo,
-			OrganizationMembers:         s.membersRepo,
+			ImpersonationSessions:        s.impersonationRepo,
+			Invitations:                  s.invitationsRepo,
+			Organizations:                s.orgsRepo,
+			AdminAccess:                  s.adminAccessRepo,
+			OrganizationMembers:          s.membersRepo,
 		},
 		RunInTx:           inlineRunInTx,
 		SessionCache:      s.sessionCache,
@@ -220,13 +220,13 @@ func (s *AuthServiceSuite) TestSignUp_Success_RecordsBothLegalAcceptancesInTrans
 
 func (s *AuthServiceSuite) TestSignUp_PrivacyAcceptanceFailureDoesNotIssueTokens() {
 	signUpUserID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
-	s.usersRepo.On("GetUserByEmail", s.ctx, "new@example.com").
+	s.usersRepo.On("GetByEmail", s.ctx, "new@example.com").
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
-	s.usersRepo.On("CreateUser", s.ctx, mock.AnythingOfType("*models.User")).Return(nil).Once()
-	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+	s.usersRepo.On("Create", s.ctx, mock.AnythingOfType("*models.User")).Return(nil).Once()
+	s.legalAcceptRepo.On("Create", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
 		return a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE
 	})).Return(nil).Once()
-	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+	s.legalAcceptRepo.On("Create", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
 		return a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY
 	})).Return(errors.New("privacy acceptance failed")).Once()
 
@@ -239,9 +239,9 @@ func (s *AuthServiceSuite) TestSignUp_PrivacyAcceptanceFailureDoesNotIssueTokens
 			}
 			return uuid.NewV7()
 		},
-		Now:        func() time.Time { return s.now },
-		Validator:  chi_validator.New(),
-		Logger:     s.logger,
+		Now:            func() time.Time { return s.now },
+		Validator:      chi_validator.New(),
+		Logger:         s.logger,
 		PasswordHashFn: chi_password.Hash,
 		GenerateToken:  chi_token.GenerateOpaqueToken,
 		HashToken:      testTokenHasher.Hash,
@@ -285,12 +285,12 @@ func (s *AuthServiceSuite) TestAuthenticateWithPassword_Validation_MissingEmail(
 
 func (s *AuthServiceSuite) TestAuthenticateWithGoogle_OAuthNotConfigured() {
 	resp, err := s.svc.AuthenticateWithGoogle(s.ctx, &auth_service.AuthenticateWithGoogleRequest{
-		Code:         "code",
+		Code:                 "code",
 		TermsVersion:         "1.0.0",
 		PrivacyPolicyVersion: "1.0.0",
-		IPAddress:    "127.0.0.1",
-		UserAgent:    "test",
-		Language:     "en",
+		IPAddress:            "127.0.0.1",
+		UserAgent:            "test",
+		Language:             "en",
 	})
 	s.Error(err)
 	s.Nil(resp)
@@ -308,7 +308,7 @@ func (s *AuthServiceSuite) TestForgotPassword_Validation_InvalidEmail() {
 }
 
 func (s *AuthServiceSuite) TestForgotPassword_UserNotFound_ReturnsNil() {
-	s.usersRepo.On("GetUserByEmail", s.ctx, "missing@example.com").
+	s.usersRepo.On("GetByEmail", s.ctx, "missing@example.com").
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
 
 	err := s.svc.ForgotPassword(s.ctx, &auth_service.ForgotPasswordRequest{
@@ -319,7 +319,7 @@ func (s *AuthServiceSuite) TestForgotPassword_UserNotFound_ReturnsNil() {
 }
 
 func (s *AuthServiceSuite) TestAuthenticateWithPassword_UserNotFound() {
-	s.usersRepo.On("GetUserByEmail", s.ctx, "missing@example.com").
+	s.usersRepo.On("GetByEmail", s.ctx, "missing@example.com").
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
 
 	resp, err := s.svc.AuthenticateWithPassword(s.ctx, &auth_service.AuthenticateWithPasswordRequest{
@@ -343,7 +343,7 @@ func (s *AuthServiceSuite) TestLogout_Validation() {
 }
 
 func (s *AuthServiceSuite) TestLogout_InvalidRefreshToken() {
-	s.refreshTokensRepo.On("GetRefreshTokenByHash", s.ctx, mock.Anything).
+	s.refreshTokensRepo.On("GetByHash", s.ctx, mock.Anything).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
 
 	userID := uuid.New()
@@ -367,7 +367,7 @@ func (s *AuthServiceSuite) TestRefreshAccessToken_Validation() {
 }
 
 func (s *AuthServiceSuite) TestRefreshAccessToken_InvalidToken() {
-	s.refreshTokensRepo.On("GetRefreshTokenByHash", s.ctx, mock.Anything).
+	s.refreshTokensRepo.On("GetByHash", s.ctx, mock.Anything).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
 
 	resp, err := s.svc.RefreshAccessToken(s.ctx, &auth_service.RefreshAccessTokenRequest{
@@ -385,7 +385,7 @@ func (s *AuthServiceSuite) TestResetPassword_Validation() {
 }
 
 func (s *AuthServiceSuite) TestResetPassword_InvalidToken() {
-	s.passwordResetRepo.On("GetPasswordResetTokenByHash", s.ctx, mock.Anything).
+	s.passwordResetRepo.On("GetByHash", s.ctx, mock.Anything).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
 
 	err := s.svc.ResetPassword(s.ctx, &auth_service.ResetPasswordRequest{
@@ -404,7 +404,7 @@ func (s *AuthServiceSuite) TestVerifyEmail_Validation() {
 }
 
 func (s *AuthServiceSuite) TestVerifyEmail_InvalidToken() {
-	s.emailVerifyRepo.On("GetEmailVerificationTokenByHash", s.ctx, mock.Anything).
+	s.emailVerifyRepo.On("GetByHash", s.ctx, mock.Anything).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
 
 	err := s.svc.VerifyEmail(s.ctx, &auth_service.VerifyEmailRequest{Token: "token"})
@@ -441,7 +441,7 @@ func (s *AuthServiceSuite) TestImpersonate_CreatesSession() {
 	admin := &chi_types.AccessInfo{
 		Type: chi_types.AccessTypeUser, SubjectID: adminID, Email: "admin@example.com", IsAdmin: true,
 	}
-	s.usersRepo.On("GetUserByID", s.ctx, targetID.String()).
+	s.usersRepo.On("GetByID", s.ctx, targetID.String()).
 		Return(&models.User{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: targetID},
@@ -449,8 +449,8 @@ func (s *AuthServiceSuite) TestImpersonate_CreatesSession() {
 			Email: "target@example.com",
 		}, nil).Once()
 	s.mockAuthSessionLoad(targetID, "target@example.com")
-	s.refreshTokensRepo.On("CreateRefreshToken", s.ctx, mock.AnythingOfType("*models.UserRefreshToken")).Return(nil).Once()
-	s.impersonationRepo.On("CreateSession", s.ctx, mock.MatchedBy(func(session *models.ImpersonationSession) bool {
+	s.refreshTokensRepo.On("Create", s.ctx, mock.AnythingOfType("*models.UserRefreshToken")).Return(nil).Once()
+	s.impersonationRepo.On("Create", s.ctx, mock.MatchedBy(func(session *models.ImpersonationSession) bool {
 		return session.AdminID == adminID &&
 			session.TargetUserID == targetID &&
 			session.AdminEmail == "admin@example.com" &&
@@ -471,20 +471,20 @@ func (s *AuthServiceSuite) TestImpersonate_CreatesSession() {
 func (s *AuthServiceSuite) TestVerifyEmail_Success() {
 	userID := uuid.New()
 	tokenID := uuid.New()
-	s.emailVerifyRepo.On("GetEmailVerificationTokenByHash", s.ctx, mock.Anything).
+	s.emailVerifyRepo.On("GetByHash", s.ctx, mock.Anything).
 		Return(&models.UserEmailVerificationToken{
 			ModelBase: chi_types.ModelBase{ID: tokenID},
 			UserID:    userID,
 			ExpiresAt: s.now.Add(time.Hour),
 		}, nil).Once()
-	s.usersRepo.On("GetUserByID", s.ctx, userID.String()).
+	s.usersRepo.On("GetByID", s.ctx, userID.String()).
 		Return(&models.User{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: userID},
 			},
 		}, nil).Once()
-	s.emailVerifyRepo.On("MarkEmailVerificationTokenAsUsed", s.ctx, tokenID.String()).Return(nil).Once()
-	s.usersRepo.On("UpdateUser", s.ctx, mock.MatchedBy(func(u *models.User) bool {
+	s.emailVerifyRepo.On("MarkAsUsed", s.ctx, tokenID.String()).Return(nil).Once()
+	s.usersRepo.On("Update", s.ctx, mock.MatchedBy(func(u *models.User) bool {
 		return u.ID == userID && u.EmailVerifiedAt != nil && u.EmailVerifiedAt.Equal(s.now)
 	})).Return(nil).Once()
 
@@ -495,21 +495,21 @@ func (s *AuthServiceSuite) TestVerifyEmail_Success() {
 func (s *AuthServiceSuite) TestResetPassword_Success() {
 	userID := uuid.New()
 	tokenID := uuid.New()
-	s.passwordResetRepo.On("GetPasswordResetTokenByHash", s.ctx, mock.Anything).
+	s.passwordResetRepo.On("GetByHash", s.ctx, mock.Anything).
 		Return(&models.UserPasswordResetToken{
 			ModelBase: chi_types.ModelBase{ID: tokenID},
 			UserID:    userID,
 			ExpiresAt: s.now.Add(time.Hour),
 		}, nil).Once()
-	s.usersRepo.On("GetUserByID", s.ctx, userID.String()).
+	s.usersRepo.On("GetByID", s.ctx, userID.String()).
 		Return(&models.User{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: userID},
 			},
 		}, nil).Once()
-	s.passwordResetRepo.On("MarkPasswordResetTokenAsUsed", s.ctx, tokenID.String()).Return(nil).Once()
-	s.usersRepo.On("UpdateUser", s.ctx, mock.AnythingOfType("*models.User")).Return(nil).Once()
-	s.refreshTokensRepo.On("RevokeAllRefreshTokensByUserID", s.ctx, userID.String(), (*string)(nil)).Return(nil).Once()
+	s.passwordResetRepo.On("MarkAsUsed", s.ctx, tokenID.String()).Return(nil).Once()
+	s.usersRepo.On("Update", s.ctx, mock.AnythingOfType("*models.User")).Return(nil).Once()
+	s.refreshTokensRepo.On("RevokeAllByUserID", s.ctx, userID.String(), (*string)(nil)).Return(nil).Once()
 
 	err := s.svc.ResetPassword(s.ctx, &auth_service.ResetPasswordRequest{
 		Token:    "reset-token",
@@ -522,12 +522,12 @@ func (s *AuthServiceSuite) TestLogout_Success() {
 	userID := uuid.New()
 	refreshPlain := "refresh-token-plain"
 	tokenHash := testTokenHasher.Hash(refreshPlain)
-	s.refreshTokensRepo.On("GetRefreshTokenByHash", s.ctx, tokenHash).
+	s.refreshTokensRepo.On("GetByHash", s.ctx, tokenHash).
 		Return(&models.UserRefreshToken{
 			UserID: userID, ExpiresAt: s.now.Add(time.Hour),
 			TokenHash: tokenHash,
 		}, nil).Once()
-	s.refreshTokensRepo.On("RevokeRefreshTokenByHash", s.ctx, tokenHash).Return(nil).Once()
+	s.refreshTokensRepo.On("RevokeByHash", s.ctx, tokenHash).Return(nil).Once()
 
 	err := s.svc.Logout(s.ctx, &auth_service.LogoutRequest{RefreshToken: refreshPlain}, &chi_types.AccessInfo{
 		Type: chi_types.AccessTypeUser, SubjectID: userID,
@@ -541,7 +541,7 @@ func (s *AuthServiceSuite) TestLogout_ClosesImpersonationSession() {
 	adminID := uuid.New()
 	refreshPlain := "refresh-token-plain"
 	tokenHash := testTokenHasher.Hash(refreshPlain)
-	s.refreshTokensRepo.On("GetRefreshTokenByHash", s.ctx, tokenHash).
+	s.refreshTokensRepo.On("GetByHash", s.ctx, tokenHash).
 		Return(&models.UserRefreshToken{
 			ModelBase:      chi_types.ModelBase{ID: tokenID},
 			UserID:         userID,
@@ -549,9 +549,9 @@ func (s *AuthServiceSuite) TestLogout_ClosesImpersonationSession() {
 			ImpersonatedBy: uuid.NullUUID{UUID: adminID, Valid: true},
 			TokenHash:      tokenHash,
 		}, nil).Once()
-	s.refreshTokensRepo.On("RevokeRefreshTokenByHash", s.ctx, tokenHash).Return(nil).Once()
+	s.refreshTokensRepo.On("RevokeByHash", s.ctx, tokenHash).Return(nil).Once()
 	s.impersonationRepo.On(
-		"EndSessionByRefreshTokenID", s.ctx, tokenID, s.now, constants.IMPERSONATION_END_REASON_LOGOUT,
+		"EndByRefreshTokenID", s.ctx, tokenID, s.now, constants.IMPERSONATION_END_REASON_LOGOUT,
 	).Return(nil).Once()
 
 	err := s.svc.Logout(s.ctx, &auth_service.LogoutRequest{RefreshToken: refreshPlain}, &chi_types.AccessInfo{
@@ -562,23 +562,23 @@ func (s *AuthServiceSuite) TestLogout_ClosesImpersonationSession() {
 
 func (s *AuthServiceSuite) mockAuthSessionLoad(userID uuid.UUID, email string) {
 	emptyRoles := []models.OrganizationMemberWithOrganizationAndRole{}
-	s.usersRepo.On("GetUserByID", s.ctx, userID.String()).Return(&models.User{
+	s.usersRepo.On("GetByID", s.ctx, userID.String()).Return(&models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{ID: userID},
 		},
 		Email: email,
 	}, nil)
-	s.membersRepo.On("ListByUserIDWithRole", s.ctx, userID.String()).Return(&emptyRoles, nil)
-	s.adminAccessRepo.On("GetAdminAccessByUserID", s.ctx, userID.String()).
+	s.membersRepo.On("ListByUserID", s.ctx, userID.String()).Return(&emptyRoles, nil)
+	s.adminAccessRepo.On("GetByUserID", s.ctx, userID.String()).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil))
-	s.refreshTokensRepo.On("GetActiveImpersonationRefreshTokenByUserID", s.ctx, userID.String()).
+	s.refreshTokensRepo.On("GetActiveImpersonationByUserID", s.ctx, userID.String()).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil))
 }
 
 func (s *AuthServiceSuite) TestRefreshAccessToken_Success() {
 	userID := uuid.New()
 	refreshPlain := "refresh-token-plain"
-	s.refreshTokensRepo.On("GetRefreshTokenByHash", s.ctx, testTokenHasher.Hash(refreshPlain)).
+	s.refreshTokensRepo.On("GetByHash", s.ctx, testTokenHasher.Hash(refreshPlain)).
 		Return(&models.UserRefreshToken{
 			UserID: userID, ExpiresAt: s.now.Add(time.Hour),
 		}, nil).Once()
@@ -597,7 +597,7 @@ func (s *AuthServiceSuite) TestAuthenticateWithPassword_Success() {
 	userID := uuid.New()
 	hashed, hashErr := chi_password.Hash("password123")
 	s.Require().NoError(hashErr)
-	s.usersRepo.On("GetUserByEmail", s.ctx, "user@example.com").
+	s.usersRepo.On("GetByEmail", s.ctx, "user@example.com").
 		Return(&models.User{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: userID},
@@ -606,7 +606,7 @@ func (s *AuthServiceSuite) TestAuthenticateWithPassword_Success() {
 			Password: hashed,
 		}, nil).Once()
 	s.mockAuthSessionLoad(userID, "user@example.com")
-	s.refreshTokensRepo.On("CreateRefreshToken", s.ctx, mock.AnythingOfType("*models.UserRefreshToken")).Return(nil).Once()
+	s.refreshTokensRepo.On("Create", s.ctx, mock.AnythingOfType("*models.UserRefreshToken")).Return(nil).Once()
 
 	resp, err := s.svc.AuthenticateWithPassword(s.ctx, &auth_service.AuthenticateWithPasswordRequest{
 		Email:     "user@example.com",

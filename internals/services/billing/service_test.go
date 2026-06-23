@@ -30,8 +30,8 @@ type BillingServiceSuite struct {
 	ctx                 context.Context
 	now                 time.Time
 	orgID               uuid.UUID
-	orgsRepo            *organization_repository.MockOrganizationsRepository
-	billingAccountsRepo *billing_account_repository.MockOrganizationBillingAccountsRepository
+	orgsRepo            *organization_repository.MockRepository
+	billingAccountsRepo *billing_account_repository.MockRepository
 	paddleCustomer      *chi_paddle_customer.MockCustomerService
 	paddleSubscription  *chi_paddle_subscription.MockSubscriptionService
 	paddleTransaction   *chi_paddle_transaction.MockTransactionService
@@ -49,8 +49,8 @@ func (s *BillingServiceSuite) SetupTest() {
 	s.now = time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	s.orgID = uuid.New()
 	s.priceID = "pri_basic_monthly"
-	s.orgsRepo = &organization_repository.MockOrganizationsRepository{}
-	s.billingAccountsRepo = &billing_account_repository.MockOrganizationBillingAccountsRepository{}
+	s.orgsRepo = &organization_repository.MockRepository{}
+	s.billingAccountsRepo = &billing_account_repository.MockRepository{}
 	s.paddleCustomer = &chi_paddle_customer.MockCustomerService{}
 	s.paddleSubscription = &chi_paddle_subscription.MockSubscriptionService{}
 	s.paddleTransaction = &chi_paddle_transaction.MockTransactionService{}
@@ -96,7 +96,6 @@ func (s *BillingServiceSuite) organization() *models.Organization {
 
 func (s *BillingServiceSuite) billingAccount(customerID string) *models.OrganizationBillingAccount {
 	return &models.OrganizationBillingAccount{
-		ModelBase:                   chi_types.ModelBase{ID: uuid.New()},
 		OrganizationID:              s.orgID,
 		Provider:                    constants.BILLING_PROVIDER_PADDLE,
 		ProviderCustomerID:          customerID,
@@ -116,9 +115,9 @@ func (s *BillingServiceSuite) TestCreateCheckoutSession_Validation() {
 }
 
 func (s *BillingServiceSuite) TestCreateCheckoutSession_MissingPaddleCustomer() {
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
+	s.orgsRepo.On("GetByID", s.ctx, s.orgID.String()).
 		Return(s.organization(), nil).Once()
-	s.billingAccountsRepo.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccountsRepo.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(s.billingAccount(""), nil).Once()
 
 	resp, err := s.svc.CreateCheckoutSession(s.ctx, &billing_service.CreateCheckoutSessionRequest{
@@ -133,9 +132,9 @@ func (s *BillingServiceSuite) TestCreateCheckoutSession_MissingPaddleCustomer() 
 }
 
 func (s *BillingServiceSuite) TestCreateCheckoutSession_Success() {
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
+	s.orgsRepo.On("GetByID", s.ctx, s.orgID.String()).
 		Return(s.organization(), nil).Once()
-	s.billingAccountsRepo.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccountsRepo.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(s.billingAccount("ctm_123"), nil).Once()
 	s.paddleTransaction.On("CreateCheckoutSession", s.ctx, "ctm_123", s.priceID).
 		Return(&chi_paddle_transaction.CheckoutSessionResult{TransactionID: "txn_123"}, nil).Once()
@@ -153,9 +152,9 @@ func (s *BillingServiceSuite) TestCancelSubscription_NoOpWhenEmptyID() {
 }
 
 func (s *BillingServiceSuite) TestCreateCustomerPortalSession_Success() {
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
+	s.orgsRepo.On("GetByID", s.ctx, s.orgID.String()).
 		Return(s.organization(), nil).Once()
-	s.billingAccountsRepo.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccountsRepo.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(s.billingAccount("ctm_123"), nil).Once()
 	s.paddleCustomer.On("CreateCustomerPortalSession", s.ctx, "ctm_123").
 		Return(&chi_paddle_customer.CustomerPortalSessionResult{URL: "https://portal.example.com"}, nil).Once()
@@ -168,7 +167,7 @@ func (s *BillingServiceSuite) TestCreateCustomerPortalSession_Success() {
 }
 
 func (s *BillingServiceSuite) TestApplyScheduledPlanChanges_NoOrganizations() {
-	s.billingAccountsRepo.On("ListOrganizationBillingAccountsWithScheduledPlanChangeDue", s.ctx).
+	s.billingAccountsRepo.On("ListWithScheduledPlanChangeDue", s.ctx).
 		Return(&[]models.OrganizationBillingAccount{}, nil).Once()
 	s.NoError(s.svc.ApplyScheduledPlanChanges(s.ctx))
 }
@@ -212,9 +211,9 @@ func (s *BillingServiceSuite) TestProcessTransaction_Validation() {
 }
 
 func (s *BillingServiceSuite) TestChangePlan_NoBillingAccount() {
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
+	s.orgsRepo.On("GetByID", s.ctx, s.orgID.String()).
 		Return(s.organization(), nil).Once()
-	s.billingAccountsRepo.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccountsRepo.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
 
 	resp, err := s.svc.ChangePlan(s.ctx, &billing_service.ChangePlanRequest{
@@ -228,9 +227,9 @@ func (s *BillingServiceSuite) TestChangePlan_NoBillingAccount() {
 func (s *BillingServiceSuite) TestChangePlan_SamePlanNoOp() {
 	account := s.billingAccount("ctm_123")
 	account.ProviderSubscriptionID = "sub_123"
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
+	s.orgsRepo.On("GetByID", s.ctx, s.orgID.String()).
 		Return(s.organization(), nil).Once()
-	s.billingAccountsRepo.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccountsRepo.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(account, nil).Once()
 
 	resp, err := s.svc.ChangePlan(s.ctx, &billing_service.ChangePlanRequest{

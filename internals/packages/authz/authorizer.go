@@ -94,7 +94,7 @@ func (a *Authorizer) CheckOrganizationPermissionWithSubscription(access *chi_typ
 		return chi_error.NewPaymentRequiredError(errors.New("subscription has expired"), "PaymentRequired", nil)
 	}
 
-	return a.CheckOrganizationPermission(access, organization.ID.String(), requiredPermissions...)
+	return a.CheckOrganizationPermission(access, organization.OrganizationID.String(), requiredPermissions...)
 }
 
 func (a *Authorizer) CheckOrganizationFeature(access *chi_types.AccessInfo, organization *models.OrganizationBillingAccount, featureKey string) error {

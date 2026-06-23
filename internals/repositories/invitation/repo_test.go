@@ -44,30 +44,30 @@ func TestMain(m *testing.M) {
 	os.Exit(testutil.IntegrationTestMain(m))
 }
 
-func TestInvitationsRepositorySuite(t *testing.T) {
-	suite.Run(t, new(InvitationsRepositorySuite))
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(RepositorySuite))
 }
 
-type InvitationsRepositorySuite struct {
+type RepositorySuite struct {
 	suite.Suite
 
 	db   *sqlx.DB
-	repo invitation_repository.InvitationsRepository
+	repo invitation_repository.Repository
 	ctx  context.Context
 }
 
-func (s *InvitationsRepositorySuite) SetupSuite() {
+func (s *RepositorySuite) SetupSuite() {
 	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
 	s.Require().NoError(err)
 
-	s.repo = invitation_repository.NewInvitationsRepository(s.db, nil)
+	s.repo = invitation_repository.NewRepository(s.db, nil)
 	s.ctx = context.Background()
 }
 
-func (s *InvitationsRepositorySuite) SetupTest() {
+func (s *RepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
 INSERT INTO users (
 	id, created_at, deleted_at, first_name, last_name, language, email, password
@@ -75,8 +75,8 @@ INSERT INTO users (
 	'11111111-1111-1111-1111-111111111301', '2024-01-01T00:00:00Z', NULL, 'Inviter', 'User', 'en',
 	'inviter@example.com', 'hash'
 );
-INSERT INTO organizations (id, created_at, deleted_at, name) VALUES (
-	'22222222-2222-2222-2222-222222222301', '2024-01-01T00:00:00Z', NULL, 'Inv Org'
+INSERT INTO organizations (id, created_at, deleted_at, name, address, city, zip, country, place_id, geo, timezone) VALUES (
+	'22222222-2222-2222-2222-222222222301', '2024-01-01T00:00:00Z', NULL, 'Inv Org', '1 Main St', 'Oslo', '0001', 'NO', 'place_seed_inv', ST_SetSRID(ST_MakePoint(10.7, 59.9), 4326), 'Europe/Oslo'
 );
 INSERT INTO roles (id, created_at, organization_id, name, description, permissions, locked) VALUES (
 	'33333333-3333-3333-3333-333333333301', '2024-01-01T00:00:00Z', '22222222-2222-2222-2222-222222222301',
@@ -104,68 +104,68 @@ INSERT INTO invitations (
 	s.Require().NoError(err)
 }
 
-func (s *InvitationsRepositorySuite) TearDownTest() {
+func (s *RepositorySuite) TearDownTest() {
 	_, err := s.db.ExecContext(s.ctx, `TRUNCATE TABLE invitations, roles, organizations, users CASCADE`)
 	s.Require().NoError(err)
 }
 
-func (s *InvitationsRepositorySuite) TestCreateInvitation() {
+func (s *RepositorySuite) TestCreate() {
 	inv := s.newInvitation(seedInvNewID, seedInvNewTokenHash, "new@example.com")
-	s.Require().NoError(s.repo.CreateInvitation(s.ctx, inv))
+	s.Require().NoError(s.repo.Create(s.ctx, inv))
 
-	got, err := s.repo.GetInvitationByID(s.ctx, seedInvOrgID, seedInvNewID)
+	got, err := s.repo.GetByID(s.ctx, seedInvOrgID, seedInvNewID)
 	s.Require().NoError(err)
 	s.Equal("new@example.com", got.Email)
 }
 
-func (s *InvitationsRepositorySuite) TestGetInvitationByTokenHash() {
-	got, err := s.repo.GetInvitationByTokenHash(s.ctx, seedInvTokenHash)
+func (s *RepositorySuite) TestGetByTokenHash() {
+	got, err := s.repo.GetByTokenHash(s.ctx, seedInvTokenHash)
 	s.Require().NoError(err)
 	s.Equal(seedInvActiveID, got.ID.String())
 }
 
-func (s *InvitationsRepositorySuite) TestUpdateInvitation() {
-	inv, err := s.repo.GetInvitationByID(s.ctx, seedInvOrgID, seedInvUpdateID)
+func (s *RepositorySuite) TestUpdate() {
+	inv, err := s.repo.GetByID(s.ctx, seedInvOrgID, seedInvUpdateID)
 	s.Require().NoError(err)
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	inv.RevokedAt = &now
-	s.Require().NoError(s.repo.UpdateInvitation(s.ctx, inv))
+	s.Require().NoError(s.repo.Update(s.ctx, inv))
 
-	got, err := s.repo.GetInvitationByID(s.ctx, seedInvOrgID, seedInvUpdateID)
+	got, err := s.repo.GetByID(s.ctx, seedInvOrgID, seedInvUpdateID)
 	s.Require().NoError(err)
 	s.NotNil(got.RevokedAt)
 }
 
-func (s *InvitationsRepositorySuite) TestListInvitationsByOrganizationID() {
-	rows, err := s.repo.ListInvitationsByOrganizationID(s.ctx, seedInvOrgID)
+func (s *RepositorySuite) TestListByOrganizationID() {
+	rows, err := s.repo.ListByOrganizationID(s.ctx, seedInvOrgID)
 	s.Require().NoError(err)
 	s.Len(*rows, 3)
 }
 
-func (s *InvitationsRepositorySuite) TestCleanupStaleInvitations() {
-	s.Require().NoError(s.repo.CleanupStaleInvitations(s.ctx))
+func (s *RepositorySuite) TestCleanupStale() {
+	s.Require().NoError(s.repo.CleanupStale(s.ctx))
 
-	_, err := s.repo.GetInvitationByTokenHash(s.ctx, "invite-token-hash-stale")
+	_, err := s.repo.GetByTokenHash(s.ctx, "invite-token-hash-stale")
 	s.requireNotFound(err)
 
-	got, err := s.repo.GetInvitationByTokenHash(s.ctx, seedInvTokenHash)
+	got, err := s.repo.GetByTokenHash(s.ctx, seedInvTokenHash)
 	s.Require().NoError(err)
 	s.Equal(seedInvActiveID, got.ID.String())
 }
 
-func (s *InvitationsRepositorySuite) TestWithTx() {
+func (s *RepositorySuite) TestWithTx() {
 	inv := s.newInvitation(seedInvTxID, seedInvTxTokenHash, "tx@example.com")
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
-		return s.repo.WithTx(tx).CreateInvitation(s.ctx, inv)
+		return s.repo.WithTx(tx).Create(s.ctx, inv)
 	})
 	s.Require().NoError(err)
 
-	got, err := s.repo.GetInvitationByID(s.ctx, seedInvOrgID, seedInvTxID)
+	got, err := s.repo.GetByID(s.ctx, seedInvOrgID, seedInvTxID)
 	s.Require().NoError(err)
 	s.Equal("tx@example.com", got.Email)
 }
 
-func (s *InvitationsRepositorySuite) newInvitation(id, tokenHash, email string) *models.Invitation {
+func (s *RepositorySuite) newInvitation(id, tokenHash, email string) *models.Invitation {
 	return &models.Invitation{
 		ModelBase: chi_types.ModelBase{
 			ID:        uuid.MustParse(id),
@@ -181,7 +181,7 @@ func (s *InvitationsRepositorySuite) newInvitation(id, tokenHash, email string) 
 	}
 }
 
-func (s *InvitationsRepositorySuite) requireNotFound(err error) {
+func (s *RepositorySuite) requireNotFound(err error) {
 	s.T().Helper()
 	s.Require().Error(err)
 	var apiErr *chi_error.Error

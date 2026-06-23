@@ -10,15 +10,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
+	"github.com/yca-software/2chi-go-api/internals/packages/audit"
+	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
 	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
 	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
-	team_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/team_member"
 	team_repository "github.com/yca-software/2chi-go-api/internals/repositories/team"
+	team_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/team_member"
 	audit_service "github.com/yca-software/2chi-go-api/internals/services/audit"
-	"github.com/yca-software/2chi-go-api/internals/packages/audit"
-	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_types "github.com/yca-software/2chi-go-types"
@@ -52,11 +52,11 @@ type service struct {
 	validator               chi_validator.Validator
 	logger                  chi_logger.Logger
 	authorizer              *authz.Authorizer
-	teamsRepo               team_repository.TeamsRepository
-	teamMembersRepo         team_member_repository.TeamMembersRepository
-	billingAccountsRepo     billing_account_repository.OrganizationBillingAccountsRepository
-	organizationsRepo       organization_repository.OrganizationsRepository
-	organizationMembersRepo organization_member_repository.OrganizationMembersRepository
+	teamsRepo               team_repository.Repository
+	teamMembersRepo         team_member_repository.Repository
+	billingAccountsRepo     billing_account_repository.Repository
+	organizationsRepo       organization_repository.Repository
+	organizationMembersRepo organization_member_repository.Repository
 	auditService            audit_service.Service
 }
 
@@ -81,12 +81,12 @@ func (s *service) CreateTeam(ctx context.Context, req *CreateTeamRequest, access
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	org, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID)
+	org, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 
-	billing, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billing, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (s *service) CreateTeam(ctx context.Context, req *CreateTeamRequest, access
 		Description:    req.Description,
 	}
 
-	if err := s.teamsRepo.CreateTeam(ctx, team); err != nil {
+	if err := s.teamsRepo.Create(ctx, team); err != nil {
 		return nil, err
 	}
 
@@ -130,11 +130,11 @@ func (s *service) UpdateTeam(ctx context.Context, req *UpdateTeamRequest, access
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
+	if _, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID); err != nil {
 		return nil, err
 	}
 
-	billing, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billing, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ func (s *service) UpdateTeam(ctx context.Context, req *UpdateTeamRequest, access
 		return nil, err
 	}
 
-	team, err := s.teamsRepo.GetTeamByID(ctx, req.OrganizationID, req.TeamID)
+	team, err := s.teamsRepo.GetByID(ctx, req.OrganizationID, req.TeamID)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func (s *service) UpdateTeam(ctx context.Context, req *UpdateTeamRequest, access
 	updatedTeam.Name = strings.TrimSpace(req.Name)
 	updatedTeam.Description = req.Description
 
-	if err := s.teamsRepo.UpdateTeam(ctx, &updatedTeam); err != nil {
+	if err := s.teamsRepo.Update(ctx, &updatedTeam); err != nil {
 		return nil, err
 	}
 
@@ -178,11 +178,11 @@ func (s *service) DeleteTeam(ctx context.Context, req *DeleteTeamRequest, access
 		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
+	if _, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID); err != nil {
 		return err
 	}
 
-	billing, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billing, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -194,12 +194,12 @@ func (s *service) DeleteTeam(ctx context.Context, req *DeleteTeamRequest, access
 		return err
 	}
 
-	team, err := s.teamsRepo.GetTeamByID(ctx, req.OrganizationID, req.TeamID)
+	team, err := s.teamsRepo.GetByID(ctx, req.OrganizationID, req.TeamID)
 	if err != nil {
 		return err
 	}
 
-	if err := s.teamsRepo.DeleteTeam(ctx, req.OrganizationID, req.TeamID); err != nil {
+	if err := s.teamsRepo.Delete(ctx, req.OrganizationID, req.TeamID); err != nil {
 		return err
 	}
 
@@ -216,7 +216,7 @@ func (s *service) ListTeams(ctx context.Context, req *ListTeamsRequest, access *
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
+	if _, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID); err != nil {
 		return nil, err
 	}
 
@@ -224,7 +224,7 @@ func (s *service) ListTeams(ctx context.Context, req *ListTeamsRequest, access *
 		return nil, err
 	}
 
-	return s.teamsRepo.ListTeamsByOrganizationID(ctx, req.OrganizationID)
+	return s.teamsRepo.ListByOrganizationID(ctx, req.OrganizationID)
 }
 
 func (s *service) AddTeamMember(ctx context.Context, req *AddTeamMemberRequest, access *chi_types.AccessInfo) (*models.TeamMemberWithUser, error) {
@@ -232,12 +232,12 @@ func (s *service) AddTeamMember(ctx context.Context, req *AddTeamMemberRequest, 
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	org, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID)
+	org, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 
-	billing, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billing, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -249,12 +249,12 @@ func (s *service) AddTeamMember(ctx context.Context, req *AddTeamMemberRequest, 
 		return nil, err
 	}
 
-	team, err := s.teamsRepo.GetTeamByID(ctx, req.OrganizationID, req.TeamID)
+	team, err := s.teamsRepo.GetByID(ctx, req.OrganizationID, req.TeamID)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err := s.organizationMembersRepo.GetOrganizationMemberByUserIDAndOrganizationID(ctx, req.UserID, req.OrganizationID); err != nil {
+	if _, err := s.organizationMembersRepo.GetByUserID(ctx, req.OrganizationID, req.UserID); err != nil {
 		return nil, err
 	}
 
@@ -265,19 +265,18 @@ func (s *service) AddTeamMember(ctx context.Context, req *AddTeamMemberRequest, 
 
 	member := &models.TeamMember{
 		ModelBase: chi_types.ModelBase{
-			ID:        memberID,
-			CreatedAt: s.now(),
+			ID: memberID,
 		},
 		OrganizationID: org.ID,
 		TeamID:         uuid.MustParse(req.TeamID),
 		UserID:         uuid.MustParse(req.UserID),
 	}
 
-	if err := s.teamMembersRepo.CreateTeamMember(ctx, member); err != nil {
+	if err := s.teamMembersRepo.Create(ctx, member); err != nil {
 		return nil, err
 	}
 
-	createdMember, err := s.teamMembersRepo.GetTeamMemberByIDWithUser(ctx, req.OrganizationID, memberID.String())
+	createdMember, err := s.teamMembersRepo.GetByIDWithUser(ctx, req.OrganizationID, memberID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -297,11 +296,7 @@ func (s *service) RemoveTeamMember(ctx context.Context, req *RemoveTeamMemberReq
 		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return err
-	}
-
-	billing, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billing, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -313,17 +308,17 @@ func (s *service) RemoveTeamMember(ctx context.Context, req *RemoveTeamMemberReq
 		return err
 	}
 
-	member, err := s.teamMembersRepo.GetTeamMemberByIDWithUser(ctx, req.OrganizationID, req.MemberID)
+	member, err := s.teamMembersRepo.GetByIDWithUser(ctx, req.OrganizationID, req.MemberID)
 	if err != nil {
 		return err
 	}
 
-	team, err := s.teamsRepo.GetTeamByID(ctx, req.OrganizationID, req.TeamID)
+	team, err := s.teamsRepo.GetByID(ctx, req.OrganizationID, req.TeamID)
 	if err != nil {
 		return err
 	}
 
-	if err := s.teamMembersRepo.DeleteTeamMember(ctx, req.OrganizationID, req.MemberID); err != nil {
+	if err := s.teamMembersRepo.Delete(ctx, req.OrganizationID, req.MemberID); err != nil {
 		return err
 	}
 
@@ -342,11 +337,7 @@ func (s *service) ListTeamMembers(ctx context.Context, req *ListTeamMembersReque
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}
 
-	if _, err := s.organizationsRepo.GetOrganizationByID(ctx, req.OrganizationID); err != nil {
-		return nil, err
-	}
-
-	billing, err := s.billingAccountsRepo.GetOrganizationBillingAccountByOrganizationID(ctx, req.OrganizationID)
+	billing, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -358,11 +349,7 @@ func (s *service) ListTeamMembers(ctx context.Context, req *ListTeamMembersReque
 		return nil, err
 	}
 
-	if _, err := s.teamsRepo.GetTeamByID(ctx, req.OrganizationID, req.TeamID); err != nil {
-		return nil, err
-	}
-
-	return s.teamMembersRepo.ListTeamMembersByTeamID(ctx, req.OrganizationID, req.TeamID)
+	return s.teamMembersRepo.ListByTeamID(ctx, req.OrganizationID, req.TeamID)
 }
 
 func (s *service) logTeamMemberAudit(ctx context.Context, access *chi_types.AccessInfo, orgID, action string, member *models.TeamMemberWithUser, team *models.Team, payload map[string]any) {
@@ -376,7 +363,7 @@ func (s *service) logTeamMemberAudit(ctx context.Context, access *chi_types.Acce
 	if resourceName == "" {
 		resourceName = "Team member"
 	}
-	if _, err := s.auditService.CreateAuditLog(ctx, &audit_service.CreateAuditLogRequest{
+	if _, err := s.auditService.Create(ctx, &audit_service.CreateRequest{
 		OrganizationID: orgID,
 		Action:         action,
 		ResourceType:   constants.RESOURCE_TYPE_TEAM_MEMBER,
@@ -395,7 +382,7 @@ func (s *service) logTeamAudit(ctx context.Context, access *chi_types.AccessInfo
 		return
 	}
 	changesRaw := json.RawMessage(changes)
-	if _, err := s.auditService.CreateAuditLog(ctx, &audit_service.CreateAuditLogRequest{
+	if _, err := s.auditService.Create(ctx, &audit_service.CreateRequest{
 		OrganizationID: orgID,
 		Action:         action,
 		ResourceType:   constants.RESOURCE_TYPE_TEAM,

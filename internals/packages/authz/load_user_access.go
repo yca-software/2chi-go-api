@@ -18,11 +18,11 @@ import (
 
 // LoadUserAccessDeps supplies repositories for building a session profile on cache miss.
 type LoadUserAccessDeps struct {
-	AdminAccessRepo         admin_access_repository.AdminAccessRepository
-	UsersRepo               user_repository.UsersRepository
-	UserRefreshTokensRepo   user_refresh_token_repository.UserRefreshTokenRepository
-	OrganizationsRepo       organization_repository.OrganizationsRepository
-	OrganizationMembersRepo organization_member_repository.OrganizationMembersRepository
+	AdminAccessRepo         admin_access_repository.Repository
+	UsersRepo               user_repository.Repository
+	UserRefreshTokensRepo   user_refresh_token_repository.Repository
+	OrganizationsRepo       organization_repository.Repository
+	OrganizationMembersRepo organization_member_repository.Repository
 }
 
 // BuildUserAccessInfo builds AccessInfo for Redis session caching from user and org role rows.
@@ -62,7 +62,7 @@ func loadImpersonationFromRefreshToken(
 		return uuid.NullUUID{}, "", nil
 	}
 
-	token, err := deps.UserRefreshTokensRepo.GetActiveImpersonationRefreshTokenByUserID(ctx, userID)
+	token, err := deps.UserRefreshTokensRepo.GetActiveImpersonationByUserID(ctx, userID)
 	if err != nil {
 		if e, ok := err.(*chi_error.Error); ok && e.StatusCode == http.StatusNotFound {
 			return uuid.NullUUID{}, "", nil
@@ -73,7 +73,7 @@ func loadImpersonationFromRefreshToken(
 		return uuid.NullUUID{}, "", nil
 	}
 
-	impersonator, err := deps.UsersRepo.GetUserByID(ctx, token.ImpersonatedBy.UUID.String())
+	impersonator, err := deps.UsersRepo.GetByID(ctx, token.ImpersonatedBy.UUID.String())
 	if err != nil {
 		return uuid.NullUUID{}, "", err
 	}
@@ -83,18 +83,18 @@ func loadImpersonationFromRefreshToken(
 
 // LoadUserAccess builds the session profile for a human user (admin flag, organization roles, impersonation).
 func LoadUserAccess(ctx context.Context, deps LoadUserAccessDeps, userID string) (*chi_types.AccessInfo, error) {
-	user, err := deps.UsersRepo.GetUserByID(ctx, userID)
+	user, err := deps.UsersRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	orgRoles, err := deps.OrganizationMembersRepo.ListByUserIDWithRole(ctx, userID)
+	orgRoles, err := deps.OrganizationMembersRepo.ListByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
 	isAdmin := false
-	adminAccess, err := deps.AdminAccessRepo.GetAdminAccessByUserID(ctx, userID)
+	adminAccess, err := deps.AdminAccessRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		if e, ok := err.(*chi_error.Error); ok && e.StatusCode == http.StatusNotFound {
 			isAdmin = false

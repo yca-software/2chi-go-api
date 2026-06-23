@@ -44,30 +44,30 @@ func TestMain(m *testing.M) {
 	os.Exit(testutil.IntegrationTestMain(m))
 }
 
-func TestUserRefreshTokenRepositorySuite(t *testing.T) {
-	suite.Run(t, new(UserRefreshTokenRepositorySuite))
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(RepositorySuite))
 }
 
-type UserRefreshTokenRepositorySuite struct {
+type RepositorySuite struct {
 	suite.Suite
 
 	db   *sqlx.DB
-	repo user_refresh_token_repository.UserRefreshTokenRepository
+	repo user_refresh_token_repository.Repository
 	ctx  context.Context
 }
 
-func (s *UserRefreshTokenRepositorySuite) SetupSuite() {
+func (s *RepositorySuite) SetupSuite() {
 	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
 	s.Require().NoError(err)
 
-	s.repo = user_refresh_token_repository.NewUserRefreshTokenRepository(s.db, nil)
+	s.repo = user_refresh_token_repository.NewRepository(s.db, nil)
 	s.ctx = context.Background()
 }
 
-func (s *UserRefreshTokenRepositorySuite) SetupTest() {
+func (s *RepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
 INSERT INTO users (
 	id, created_at, deleted_at, first_name, last_name, language, email, password
@@ -85,12 +85,12 @@ INSERT INTO user_refresh_tokens (
 	s.Require().NoError(err)
 }
 
-func (s *UserRefreshTokenRepositorySuite) TearDownTest() {
+func (s *RepositorySuite) TearDownTest() {
 	_, err := s.db.ExecContext(s.ctx, `TRUNCATE TABLE users CASCADE`)
 	s.Require().NoError(err)
 }
 
-func (s *UserRefreshTokenRepositorySuite) TestCreateRefreshToken() {
+func (s *RepositorySuite) TestCreate() {
 	token := &models.UserRefreshToken{
 		ModelBase: chi_types.ModelBase{
 			ID:        uuid.MustParse(seedRefreshNewID),
@@ -102,54 +102,54 @@ func (s *UserRefreshTokenRepositorySuite) TestCreateRefreshToken() {
 		UserAgent: "agent",
 		TokenHash: seedRefreshHashNew,
 	}
-	s.Require().NoError(s.repo.CreateRefreshToken(s.ctx, token))
+	s.Require().NoError(s.repo.Create(s.ctx, token))
 
-	got, err := s.repo.GetRefreshTokenByHash(s.ctx, seedRefreshHashNew)
+	got, err := s.repo.GetByHash(s.ctx, seedRefreshHashNew)
 	s.Require().NoError(err)
 	s.Equal(seedRefreshNewID, got.ID.String())
 }
 
-func (s *UserRefreshTokenRepositorySuite) TestGetActiveRefreshTokensByUserID() {
-	rows, err := s.repo.GetActiveRefreshTokensByUserID(s.ctx, seedTokenUserID)
+func (s *RepositorySuite) TestListActiveByUserID() {
+	rows, err := s.repo.ListActiveByUserID(s.ctx, seedTokenUserID)
 	s.Require().NoError(err)
 	s.GreaterOrEqual(len(*rows), 3)
 }
 
-func (s *UserRefreshTokenRepositorySuite) TestGetActiveImpersonationRefreshTokenByUserID() {
-	got, err := s.repo.GetActiveImpersonationRefreshTokenByUserID(s.ctx, seedTokenUserID)
+func (s *RepositorySuite) TestGetActiveImpersonationByUserID() {
+	got, err := s.repo.GetActiveImpersonationByUserID(s.ctx, seedTokenUserID)
 	s.Require().NoError(err)
 	s.Equal(seedRefreshImpersonateID, got.ID.String())
 }
 
-func (s *UserRefreshTokenRepositorySuite) TestRevokeRefreshTokenByID() {
-	s.Require().NoError(s.repo.RevokeRefreshTokenByID(s.ctx, seedTokenUserID, seedRefreshRevokeID))
-	got, err := s.repo.GetRefreshTokenByHash(s.ctx, seedRefreshHashRevoke)
+func (s *RepositorySuite) TestRevokeByID() {
+	s.Require().NoError(s.repo.RevokeByID(s.ctx, seedTokenUserID, seedRefreshRevokeID))
+	got, err := s.repo.GetByHash(s.ctx, seedRefreshHashRevoke)
 	s.Require().NoError(err)
 	s.NotNil(got.RevokedAt)
 }
 
-func (s *UserRefreshTokenRepositorySuite) TestRevokeRefreshTokenByHash() {
-	s.Require().NoError(s.repo.RevokeRefreshTokenByHash(s.ctx, seedRefreshHashActive))
-	got, err := s.repo.GetRefreshTokenByHash(s.ctx, seedRefreshHashActive)
+func (s *RepositorySuite) TestRevokeByHash() {
+	s.Require().NoError(s.repo.RevokeByHash(s.ctx, seedRefreshHashActive))
+	got, err := s.repo.GetByHash(s.ctx, seedRefreshHashActive)
 	s.Require().NoError(err)
 	s.NotNil(got.RevokedAt)
 }
 
-func (s *UserRefreshTokenRepositorySuite) TestRevokeAllRefreshTokensByUserID() {
+func (s *RepositorySuite) TestRevokeAllByUserID() {
 	exclude := seedRefreshExcludeID
-	s.Require().NoError(s.repo.RevokeAllRefreshTokensByUserID(s.ctx, seedTokenUserID, &exclude))
-	got, err := s.repo.GetRefreshTokenByHash(s.ctx, "refresh-hash-exclude")
+	s.Require().NoError(s.repo.RevokeAllByUserID(s.ctx, seedTokenUserID, &exclude))
+	got, err := s.repo.GetByHash(s.ctx, "refresh-hash-exclude")
 	s.Require().NoError(err)
 	s.Nil(got.RevokedAt)
 }
 
-func (s *UserRefreshTokenRepositorySuite) TestCleanupStaleUnusedRefreshTokens() {
-	s.Require().NoError(s.repo.CleanupStaleUnusedRefreshTokens(s.ctx))
-	_, err := s.repo.GetRefreshTokenByHash(s.ctx, "refresh-hash-stale")
+func (s *RepositorySuite) TestCleanupStaleUnused() {
+	s.Require().NoError(s.repo.CleanupStaleUnused(s.ctx))
+	_, err := s.repo.GetByHash(s.ctx, "refresh-hash-stale")
 	s.requireNotFound(err)
 }
 
-func (s *UserRefreshTokenRepositorySuite) TestWithTx() {
+func (s *RepositorySuite) TestWithTx() {
 	token := &models.UserRefreshToken{
 		ModelBase: chi_types.ModelBase{
 			ID:        uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaa607"),
@@ -162,16 +162,16 @@ func (s *UserRefreshTokenRepositorySuite) TestWithTx() {
 		TokenHash: "refresh-hash-tx",
 	}
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
-		return s.repo.WithTx(tx).CreateRefreshToken(s.ctx, token)
+		return s.repo.WithTx(tx).Create(s.ctx, token)
 	})
 	s.Require().NoError(err)
 
-	got, err := s.repo.GetRefreshTokenByHash(s.ctx, "refresh-hash-tx")
+	got, err := s.repo.GetByHash(s.ctx, "refresh-hash-tx")
 	s.Require().NoError(err)
 	s.Equal("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaa607", got.ID.String())
 }
 
-func (s *UserRefreshTokenRepositorySuite) requireNotFound(err error) {
+func (s *RepositorySuite) requireNotFound(err error) {
 	s.T().Helper()
 	s.Require().Error(err)
 	var apiErr *chi_error.Error

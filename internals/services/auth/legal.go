@@ -12,7 +12,7 @@ import (
 
 func (s *service) createLegalDocumentAcceptance(
 	ctx context.Context,
-	repo user_legal_document_acceptance_repository.UserLegalDocumentAcceptanceRepository,
+	repo user_legal_document_acceptance_repository.Repository,
 	userID uuid.UUID,
 	documentType, documentVersion string,
 ) error {
@@ -20,7 +20,7 @@ func (s *service) createLegalDocumentAcceptance(
 	if err != nil {
 		return err
 	}
-	return repo.CreateUserLegalDocumentAcceptance(ctx, &models.UserLegalDocumentAcceptance{
+	return repo.Create(ctx, &models.UserLegalDocumentAcceptance{
 		ModelBase: chi_types.ModelBase{
 			ID: acceptanceID,
 		},
@@ -32,7 +32,7 @@ func (s *service) createLegalDocumentAcceptance(
 
 func (s *service) createLegalDocumentAcceptances(
 	ctx context.Context,
-	repo user_legal_document_acceptance_repository.UserLegalDocumentAcceptanceRepository,
+	repo user_legal_document_acceptance_repository.Repository,
 	userID uuid.UUID,
 	termsVersion, privacyPolicyVersion string,
 ) error {

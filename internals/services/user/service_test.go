@@ -11,16 +11,16 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
+	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
-	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
 	admin_access_repository "github.com/yca-software/2chi-go-api/internals/repositories/admin_access"
+	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
 	user_repository "github.com/yca-software/2chi-go-api/internals/repositories/user"
 	user_email_verification_token_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_email_verification_token"
 	user_legal_document_acceptance_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_legal_document_acceptance"
 	user_password_reset_token_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_password_reset_token"
 	user_refresh_token_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_refresh_token"
 	user_service "github.com/yca-software/2chi-go-api/internals/services/user"
-	"github.com/yca-software/2chi-go-api/internals/packages/authz"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_password "github.com/yca-software/2chi-go-password"
@@ -37,13 +37,13 @@ type UserServiceSuite struct {
 	ctx               context.Context
 	now               time.Time
 	userID            uuid.UUID
-	usersRepo         *user_repository.MockUsersRepository
-	refreshTokensRepo *user_refresh_token_repository.MockUserRefreshTokenRepository
-	passwordResetRepo *user_password_reset_token_repository.MockUserPasswordResetTokenRepository
-	emailVerifyRepo   *user_email_verification_token_repository.MockUserEmailVerificationTokenRepository
-	legalAcceptRepo   *user_legal_document_acceptance_repository.MockUserLegalDocumentAcceptanceRepository
-	adminAccessRepo   *admin_access_repository.MockAdminAccessRepository
-	membersRepo       *organization_member_repository.MockOrganizationMembersRepository
+	usersRepo         *user_repository.MockRepository
+	refreshTokensRepo *user_refresh_token_repository.MockRepository
+	passwordResetRepo *user_password_reset_token_repository.MockRepository
+	emailVerifyRepo   *user_email_verification_token_repository.MockRepository
+	legalAcceptRepo   *user_legal_document_acceptance_repository.MockRepository
+	adminAccessRepo   *admin_access_repository.MockRepository
+	membersRepo       *organization_member_repository.MockRepository
 	sessionCache      *authz.SessionCache
 	svc               user_service.Service
 }
@@ -56,13 +56,13 @@ func (s *UserServiceSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.now = time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	s.userID = uuid.MustParse("018f1234-5678-7abc-8def-012345678901")
-	s.usersRepo = &user_repository.MockUsersRepository{}
-	s.refreshTokensRepo = &user_refresh_token_repository.MockUserRefreshTokenRepository{}
-	s.passwordResetRepo = &user_password_reset_token_repository.MockUserPasswordResetTokenRepository{}
-	s.emailVerifyRepo = &user_email_verification_token_repository.MockUserEmailVerificationTokenRepository{}
-	s.legalAcceptRepo = &user_legal_document_acceptance_repository.MockUserLegalDocumentAcceptanceRepository{}
-	s.adminAccessRepo = &admin_access_repository.MockAdminAccessRepository{}
-	s.membersRepo = &organization_member_repository.MockOrganizationMembersRepository{}
+	s.usersRepo = &user_repository.MockRepository{}
+	s.refreshTokensRepo = &user_refresh_token_repository.MockRepository{}
+	s.passwordResetRepo = &user_password_reset_token_repository.MockRepository{}
+	s.emailVerifyRepo = &user_email_verification_token_repository.MockRepository{}
+	s.legalAcceptRepo = &user_legal_document_acceptance_repository.MockRepository{}
+	s.adminAccessRepo = &admin_access_repository.MockRepository{}
+	s.membersRepo = &organization_member_repository.MockRepository{}
 	s.sessionCache = authz.NewTestSessionCache(s.T(), time.Hour)
 
 	s.svc = user_service.New(user_service.Dependencies{
@@ -115,21 +115,21 @@ func (s *UserServiceSuite) TestAcceptTerms_ForbiddenForOtherUser() {
 }
 
 func (s *UserServiceSuite) TestAcceptTerms_Success() {
-	s.usersRepo.On("GetUserByID", s.ctx, s.userID.String()).Return(&models.User{
+	s.usersRepo.On("GetByID", s.ctx, s.userID.String()).Return(&models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{ID: s.userID},
 		},
 		Email: "user@example.com",
 	}, nil).Once()
-	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+	s.legalAcceptRepo.On("Create", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
 		return a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE && a.DocumentVersion == "1.0.0"
 	})).Return(nil).Once()
-	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+	s.legalAcceptRepo.On("Create", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
 		return a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY && a.DocumentVersion == "1.0.0"
 	})).Return(nil).Once()
-	s.legalAcceptRepo.On("GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType", s.ctx, s.userID.String(), constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE).
+	s.legalAcceptRepo.On("GetLatestByUserIDAndDocumentType", s.ctx, s.userID.String(), constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE).
 		Return(&models.UserLegalDocumentAcceptance{DocumentVersion: "1.0.0"}, nil).Once()
-	s.legalAcceptRepo.On("GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType", s.ctx, s.userID.String(), constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY).
+	s.legalAcceptRepo.On("GetLatestByUserIDAndDocumentType", s.ctx, s.userID.String(), constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY).
 		Return(&models.UserLegalDocumentAcceptance{DocumentVersion: "1.0.0"}, nil).Once()
 
 	updated, err := s.svc.AcceptTerms(s.ctx, &user_service.AcceptTermsRequest{
@@ -144,16 +144,16 @@ func (s *UserServiceSuite) TestAcceptTerms_Success() {
 }
 
 func (s *UserServiceSuite) TestAcceptTerms_PrivacyAcceptanceFailure() {
-	s.usersRepo.On("GetUserByID", s.ctx, s.userID.String()).Return(&models.User{
+	s.usersRepo.On("GetByID", s.ctx, s.userID.String()).Return(&models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{ID: s.userID},
 		},
 		Email: "user@example.com",
 	}, nil).Once()
-	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+	s.legalAcceptRepo.On("Create", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
 		return a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE
 	})).Return(nil).Once()
-	s.legalAcceptRepo.On("CreateUserLegalDocumentAcceptance", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
+	s.legalAcceptRepo.On("Create", s.ctx, mock.MatchedBy(func(a *models.UserLegalDocumentAcceptance) bool {
 		return a.DocumentType == constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY
 	})).Return(errors.New("privacy acceptance failed")).Once()
 
@@ -169,7 +169,7 @@ func (s *UserServiceSuite) TestAcceptTerms_PrivacyAcceptanceFailure() {
 func (s *UserServiceSuite) TestChangePassword_OldPasswordMismatch() {
 	hash, err := chi_password.Hash("correct-old")
 	s.Require().NoError(err)
-	s.usersRepo.On("GetUserByID", s.ctx, s.userID.String()).Return(&models.User{
+	s.usersRepo.On("GetByID", s.ctx, s.userID.String()).Return(&models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{ModelBase: chi_types.ModelBase{ID: s.userID}},
 		Password:             hash,
 	}, nil).Once()
@@ -188,14 +188,14 @@ func (s *UserServiceSuite) TestChangePassword_OldPasswordMismatch() {
 func (s *UserServiceSuite) TestChangePassword_RevokesRefreshTokensAndSession() {
 	hash, err := chi_password.Hash("correct-old")
 	s.Require().NoError(err)
-	s.usersRepo.On("GetUserByID", s.ctx, s.userID.String()).Return(&models.User{
+	s.usersRepo.On("GetByID", s.ctx, s.userID.String()).Return(&models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{ModelBase: chi_types.ModelBase{ID: s.userID}},
 		Password:             hash,
 	}, nil).Once()
-	s.usersRepo.On("UpdateUser", s.ctx, mock.MatchedBy(func(u *models.User) bool {
+	s.usersRepo.On("Update", s.ctx, mock.MatchedBy(func(u *models.User) bool {
 		return u.ID == s.userID && u.Password != hash
 	})).Return(nil).Once()
-	s.refreshTokensRepo.On("RevokeAllRefreshTokensByUserID", s.ctx, s.userID.String(), (*string)(nil)).Return(nil).Once()
+	s.refreshTokensRepo.On("RevokeAllByUserID", s.ctx, s.userID.String(), (*string)(nil)).Return(nil).Once()
 
 	err = s.svc.ChangePassword(s.ctx, &user_service.ChangePasswordRequest{
 		UserID:      s.userID.String(),
@@ -206,14 +206,14 @@ func (s *UserServiceSuite) TestChangePassword_RevokesRefreshTokensAndSession() {
 }
 
 func (s *UserServiceSuite) TestUpdateProfile_Success() {
-	s.usersRepo.On("GetUserByID", s.ctx, s.userID.String()).Return(&models.User{
+	s.usersRepo.On("GetByID", s.ctx, s.userID.String()).Return(&models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{ID: s.userID},
 		},
 		FirstName: "Ada",
 		LastName:  "Lovelace",
 	}, nil).Once()
-	s.usersRepo.On("UpdateUser", s.ctx, mock.MatchedBy(func(u *models.User) bool {
+	s.usersRepo.On("Update", s.ctx, mock.MatchedBy(func(u *models.User) bool {
 		return u.FirstName == "Grace" && u.LastName == "Hopper"
 	})).Return(nil).Once()
 
@@ -227,23 +227,23 @@ func (s *UserServiceSuite) TestUpdateProfile_Success() {
 }
 
 func (s *UserServiceSuite) expectNoLegalAcceptances(userID string) {
-	s.legalAcceptRepo.On("GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType", s.ctx, userID, constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE).
+	s.legalAcceptRepo.On("GetLatestByUserIDAndDocumentType", s.ctx, userID, constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
-	s.legalAcceptRepo.On("GetLatestUserLegalDocumentAcceptanceByUserIDAndDocumentType", s.ctx, userID, constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY).
+	s.legalAcceptRepo.On("GetLatestByUserIDAndDocumentType", s.ctx, userID, constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
 }
 
 func (s *UserServiceSuite) TestGetUser_AdminCanReadAnyUser() {
 	targetID := uuid.New()
-	s.usersRepo.On("GetUserByID", s.ctx, targetID.String()).Return(&models.User{
+	s.usersRepo.On("GetByID", s.ctx, targetID.String()).Return(&models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{ID: targetID},
 		},
 		Email: "other@example.com",
 	}, nil).Once()
-	s.membersRepo.On("ListByUserIDWithRole", s.ctx, targetID.String()).
+	s.membersRepo.On("ListByUserID", s.ctx, targetID.String()).
 		Return(&[]models.OrganizationMemberWithOrganizationAndRole{}, nil).Once()
-	s.adminAccessRepo.On("GetAdminAccessByUserID", s.ctx, targetID.String()).
+	s.adminAccessRepo.On("GetByUserID", s.ctx, targetID.String()).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
 	s.expectNoLegalAcceptances(targetID.String())
 
@@ -258,25 +258,25 @@ func (s *UserServiceSuite) TestListUsers_RequiresAdmin() {
 }
 
 func (s *UserServiceSuite) TestCleanupArchivedUsers() {
-	s.usersRepo.On("CleanupArchivedUsers", s.ctx).Return(nil).Once()
+	s.usersRepo.On("CleanupArchived", s.ctx).Return(nil).Once()
 	s.NoError(s.svc.CleanupArchivedUsers(s.ctx))
 }
 
 func (s *UserServiceSuite) TestCleanupStaleUnusedUserTokens() {
-	s.refreshTokensRepo.On("CleanupStaleUnusedRefreshTokens", mock.Anything).Return(nil).Once()
-	s.passwordResetRepo.On("CleanupStaleUnusedPasswordResetTokens", mock.Anything).Return(nil).Once()
-	s.emailVerifyRepo.On("CleanupStaleUnusedEmailVerificationTokens", mock.Anything).Return(nil).Once()
+	s.refreshTokensRepo.On("CleanupStaleUnused", mock.Anything).Return(nil).Once()
+	s.passwordResetRepo.On("CleanupStaleUnused", mock.Anything).Return(nil).Once()
+	s.emailVerifyRepo.On("CleanupStaleUnused", mock.Anything).Return(nil).Once()
 	s.NoError(s.svc.CleanupStaleUnusedUserTokens(s.ctx))
 }
 
 func (s *UserServiceSuite) TestUpdateLanguage_Success() {
-	s.usersRepo.On("GetUserByID", s.ctx, s.userID.String()).Return(&models.User{
+	s.usersRepo.On("GetByID", s.ctx, s.userID.String()).Return(&models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{ID: s.userID},
 		},
 		Language: "en",
 	}, nil).Once()
-	s.usersRepo.On("UpdateUser", s.ctx, mock.MatchedBy(func(u *models.User) bool {
+	s.usersRepo.On("Update", s.ctx, mock.MatchedBy(func(u *models.User) bool {
 		return u.Language == "no"
 	})).Return(nil).Once()
 
@@ -293,20 +293,20 @@ func (s *UserServiceSuite) TestArchiveUser_Success() {
 			ModelBase: chi_types.ModelBase{ID: s.userID},
 		},
 	}
-	s.usersRepo.On("GetUserByID", s.ctx, s.userID.String()).Return(user, nil).Once()
-	s.usersRepo.On("ArchiveUser", s.ctx, user).Return(nil).Once()
+	s.usersRepo.On("GetByID", s.ctx, s.userID.String()).Return(user, nil).Once()
+	s.usersRepo.On("Archive", s.ctx, user).Return(nil).Once()
 
 	err := s.svc.ArchiveUser(s.ctx, &user_service.ArchiveUserRequest{UserID: s.userID.String()}, s.ownAccess())
 	s.NoError(err)
 }
 
 func (s *UserServiceSuite) TestRestoreUser_Success() {
-	s.usersRepo.On("GetUserByIDIncludeArchived", s.ctx, s.userID.String()).Return(&models.User{
+	s.usersRepo.On("GetByIDIncludeArchived", s.ctx, s.userID.String()).Return(&models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{ID: s.userID},
 		},
 	}, nil).Once()
-	s.usersRepo.On("RestoreUser", s.ctx, s.userID.String()).Return(nil).Once()
+	s.usersRepo.On("Restore", s.ctx, s.userID.String()).Return(nil).Once()
 
 	restored, err := s.svc.RestoreUser(s.ctx, &user_service.RestoreUserRequest{UserID: s.userID.String()}, s.ownAccess())
 	s.Require().NoError(err)
@@ -315,7 +315,7 @@ func (s *UserServiceSuite) TestRestoreUser_Success() {
 
 func (s *UserServiceSuite) TestRevokeUserRefreshToken_Success() {
 	tokenID := uuid.New()
-	s.refreshTokensRepo.On("RevokeRefreshTokenByID", s.ctx, s.userID.String(), tokenID.String()).Return(nil).Once()
+	s.refreshTokensRepo.On("RevokeByID", s.ctx, s.userID.String(), tokenID.String()).Return(nil).Once()
 	s.Require().NoError(s.sessionCache.Set(s.ctx, s.ownAccess()))
 
 	err := s.svc.RevokeUserRefreshToken(s.ctx, &user_service.RevokeUserRefreshTokenRequest{
@@ -337,8 +337,8 @@ func (s *UserServiceSuite) TestRevokeUserAdminAccess_InvalidatesSession() {
 		IsAdmin:   true,
 	}
 	s.Require().NoError(s.sessionCache.Set(s.ctx, cachedAccess))
-	s.adminAccessRepo.On("GetAdminAccessByUserID", s.ctx, targetID.String()).Return(adminAccess, nil).Once()
-	s.adminAccessRepo.On("DeleteAdminAccessByUserID", s.ctx, targetID.String()).Return(nil).Once()
+	s.adminAccessRepo.On("GetByUserID", s.ctx, targetID.String()).Return(adminAccess, nil).Once()
+	s.adminAccessRepo.On("DeleteByUserID", s.ctx, targetID.String()).Return(nil).Once()
 
 	err := s.svc.RevokeUserAdminAccess(s.ctx, &user_service.RevokeUserAdminAccessRequest{
 		UserID: targetID.String(),
@@ -366,7 +366,7 @@ func (s *UserServiceSuite) TestRevokeUserAdminAccess_ForbidsSelfDemotion() {
 }
 
 func (s *UserServiceSuite) TestRevokeUserAllRefreshTokens_Success() {
-	s.refreshTokensRepo.On("RevokeAllRefreshTokensByUserID", s.ctx, s.userID.String(), (*string)(nil)).Return(nil).Once()
+	s.refreshTokensRepo.On("RevokeAllByUserID", s.ctx, s.userID.String(), (*string)(nil)).Return(nil).Once()
 
 	err := s.svc.RevokeUserAllRefreshTokens(s.ctx, &user_service.RevokeUserAllRefreshTokensRequest{
 		UserID: s.userID.String(),
@@ -382,7 +382,7 @@ func (s *UserServiceSuite) TestListUsers_Success() {
 		},
 		Email: "a@example.com",
 	}}
-	s.usersRepo.On("SearchUsers", s.ctx, "", mock.Anything, 21, 0).Return(&users, nil).Once()
+	s.usersRepo.On("Search", s.ctx, "", mock.Anything, 21, 0).Return(&users, nil).Once()
 
 	resp, err := s.svc.ListUsers(s.ctx, &user_service.ListUsersRequest{Limit: 20, Offset: 0}, s.adminAccess())
 	s.Require().NoError(err)
@@ -394,7 +394,7 @@ func (s *UserServiceSuite) TestListUserActiveRefreshTokens_Success() {
 		ModelBase: chi_types.ModelBase{ID: uuid.New()},
 		UserID:    s.userID,
 	}}
-	s.refreshTokensRepo.On("GetActiveRefreshTokensByUserID", s.ctx, s.userID.String()).Return(&tokens, nil).Once()
+	s.refreshTokensRepo.On("ListActiveByUserID", s.ctx, s.userID.String()).Return(&tokens, nil).Once()
 
 	result, err := s.svc.ListUserActiveRefreshTokens(s.ctx, &user_service.ListUserActiveRefreshTokensRequest{
 		UserID: s.userID.String(),
@@ -405,7 +405,7 @@ func (s *UserServiceSuite) TestListUserActiveRefreshTokens_Success() {
 
 func (s *UserServiceSuite) TestResendVerificationEmail_AlreadyVerified() {
 	verifiedAt := s.now
-	s.usersRepo.On("GetUserByID", s.ctx, s.userID.String()).Return(&models.User{
+	s.usersRepo.On("GetByID", s.ctx, s.userID.String()).Return(&models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{ID: s.userID},
 		},
@@ -422,13 +422,13 @@ func (s *UserServiceSuite) TestResendVerificationEmail_AlreadyVerified() {
 }
 
 func (s *UserServiceSuite) TestGetUser_OwnUser() {
-	s.usersRepo.On("GetUserByID", s.ctx, s.userID.String()).Return(&models.User{
+	s.usersRepo.On("GetByID", s.ctx, s.userID.String()).Return(&models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{ID: s.userID},
 		},
 	}, nil).Once()
-	s.membersRepo.On("ListByUserIDWithRole", s.ctx, s.userID.String()).Return(&[]models.OrganizationMemberWithOrganizationAndRole{}, nil).Once()
-	s.adminAccessRepo.On("GetAdminAccessByUserID", s.ctx, s.userID.String()).
+	s.membersRepo.On("ListByUserID", s.ctx, s.userID.String()).Return(&[]models.OrganizationMemberWithOrganizationAndRole{}, nil).Once()
+	s.adminAccessRepo.On("GetByUserID", s.ctx, s.userID.String()).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil)).Once()
 	s.expectNoLegalAcceptances(s.userID.String())
 

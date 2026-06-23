@@ -4,12 +4,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	chi_types "github.com/yca-software/2chi-go-types"
 )
 
 type OrganizationBillingAccount struct {
-	chi_types.ModelBase
 	OrganizationID uuid.UUID `json:"organizationId" db:"organization_id"`
+	CreatedAt      time.Time `json:"createdAt" db:"created_at"`
+	UpdatedAt      time.Time `json:"updatedAt" db:"updated_at"`
 
 	BillingEmail string `db:"billing_email" json:"billingEmail"`
 
@@ -25,5 +25,5 @@ type OrganizationBillingAccount struct {
 	SubscriptionInTrial         bool       `db:"subscription_in_trial" json:"subscriptionInTrial"`
 
 	// When set: switch to this price & tier at end of current period (SubscriptionExpiresAt). Used for annual→monthly.
-	SubscriptionScheduledPlanPriceID *string `db:"subscription_scheduled_plan_price_id" json:"subscriptionScheduledPlanPriceId"`
+	SubscriptionScheduledPlanPriceID string `db:"subscription_scheduled_plan_price_id" json:"subscriptionScheduledPlanPriceId"`
 }

@@ -225,7 +225,7 @@ func (h *OrganizationsHandler) ArchiveOrganization(c echo.Context) error {
 // @Param        offset     query  int     false  "Offset (default 0)"
 // @Param        startDate  query  string  false  "Start date (RFC3339)"
 // @Param        endDate    query  string  false  "End date (RFC3339)"
-// @Success      200        {object}  audit_service.ListAuditLogsForOrganizationResponse
+// @Success      200        {object}  audit_service.ListForOrganizationResponse
 // @Failure      400        {object}  error.ErrorResponse
 // @Failure      401        {object}  error.ErrorResponse
 // @Failure      403        {object}  error.ErrorResponse
@@ -249,7 +249,7 @@ func (h *OrganizationsHandler) ListAuditLogs(c echo.Context) error {
 		return err
 	}
 
-	resp, err := h.auditLogsService.ListAuditLogsForOrganization(ctx, &audit_service.ListAuditLogsForOrganizationRequest{
+	resp, err := h.auditLogsService.ListForOrganization(ctx, &audit_service.ListForOrganizationRequest{
 		OrganizationID: orgID,
 		Limit:          limit,
 		Offset:         offset,

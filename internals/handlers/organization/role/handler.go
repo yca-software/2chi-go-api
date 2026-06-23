@@ -34,7 +34,7 @@ func (h *RolesHandler) RegisterRoutes(detail *echo.Group) {
 // @Accept       json
 // @Produce      json
 // @Param        orgId  path      string                         true  "Organization ID"
-// @Param        role   body      role_service.CreateRoleRequest     true  "Role request"
+// @Param        role   body      role_service.CreateRequest     true  "Role request"
 // @Success      201    {object}  models.Role
 // @Failure      400    {object}  error.ErrorResponse
 // @Failure      401    {object}  error.ErrorResponse
@@ -51,13 +51,13 @@ func (h *RolesHandler) CreateRole(c echo.Context) error {
 		return err
 	}
 
-	var req role_service.CreateRoleRequest
+	var req role_service.CreateRequest
 	if err := c.Bind(&req); err != nil {
 		return chi_error.NewBadRequestError(err, "InvalidRequestBody", nil)
 	}
 	req.OrganizationID = orgID
 
-	role, err := h.rolesService.CreateRole(ctx, &req, accessInfo)
+	role, err := h.rolesService.Create(ctx, &req, accessInfo)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func (h *RolesHandler) ListRoles(c echo.Context) error {
 		return err
 	}
 
-	roles, err := h.rolesService.ListRoles(ctx, &role_service.ListRolesRequest{OrganizationID: orgID}, accessInfo)
+	roles, err := h.rolesService.List(ctx, &role_service.ListRequest{OrganizationID: orgID}, accessInfo)
 	if err != nil {
 		return err
 	}
@@ -100,7 +100,7 @@ func (h *RolesHandler) ListRoles(c echo.Context) error {
 // @Produce      json
 // @Param        orgId   path      string                         true  "Organization ID"
 // @Param        roleId  path      string                         true  "Role ID"
-// @Param        role    body      role_service.UpdateRoleRequest     true  "Role request"
+// @Param        role    body      role_service.UpdateRequest     true  "Role request"
 // @Success      200     {object}  models.Role
 // @Failure      400     {object}  error.ErrorResponse
 // @Failure      401     {object}  error.ErrorResponse
@@ -117,14 +117,14 @@ func (h *RolesHandler) UpdateRole(c echo.Context) error {
 		return err
 	}
 
-	var req role_service.UpdateRoleRequest
+	var req role_service.UpdateRequest
 	if err := c.Bind(&req); err != nil {
 		return chi_error.NewBadRequestError(err, "InvalidRequestBody", nil)
 	}
 	req.OrganizationID = orgID
 	req.RoleID = c.Param("roleId")
 
-	role, err := h.rolesService.UpdateRole(ctx, &req, accessInfo)
+	role, err := h.rolesService.Update(ctx, &req, accessInfo)
 	if err != nil {
 		return err
 	}
@@ -155,7 +155,7 @@ func (h *RolesHandler) DeleteRole(c echo.Context) error {
 		return err
 	}
 
-	if err := h.rolesService.DeleteRole(ctx, &role_service.DeleteRoleRequest{
+	if err := h.rolesService.Delete(ctx, &role_service.DeleteRequest{
 		OrganizationID: orgID,
 		RoleID:         c.Param("roleId"),
 	}, accessInfo); err != nil {

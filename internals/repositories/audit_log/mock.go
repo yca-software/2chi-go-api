@@ -8,19 +8,19 @@ import (
 	chi_repository "github.com/yca-software/2chi-go-repository"
 )
 
-type MockAuditLogsRepository struct {
+type MockRepository struct {
 	mock.Mock
 }
 
-func (m *MockAuditLogsRepository) WithTx(_ chi_repository.Tx) AuditLogsRepository {
+func (m *MockRepository) WithTx(_ chi_repository.Tx) Repository {
 	return m
 }
 
-func (m *MockAuditLogsRepository) CreateAuditLog(ctx context.Context, log *models.AuditLog) error {
+func (m *MockRepository) Create(ctx context.Context, log *models.AuditLog) error {
 	return m.Called(ctx, log).Error(0)
 }
 
-func (m *MockAuditLogsRepository) ListAuditLogsByOrganizationID(ctx context.Context, organizationID string, filters *AuditLogFilters, limit, offset int) (*[]models.AuditLog, error) {
+func (m *MockRepository) ListByOrganizationID(ctx context.Context, organizationID string, filters *AuditLogFilters, limit, offset int) (*[]models.AuditLog, error) {
 	args := m.Called(ctx, organizationID, filters, limit, offset)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

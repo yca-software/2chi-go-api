@@ -13,8 +13,8 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/suite"
 
-	admin_access_repository "github.com/yca-software/2chi-go-api/internals/repositories/admin_access"
 	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
+	admin_access_repository "github.com/yca-software/2chi-go-api/internals/repositories/admin_access"
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_repository "github.com/yca-software/2chi-go-repository"
 )
@@ -30,30 +30,30 @@ func TestMain(m *testing.M) {
 	os.Exit(testutil.IntegrationTestMain(m))
 }
 
-func TestAdminAccessRepositorySuite(t *testing.T) {
-	suite.Run(t, new(AdminAccessRepositorySuite))
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(RepositorySuite))
 }
 
-type AdminAccessRepositorySuite struct {
+type RepositorySuite struct {
 	suite.Suite
 
 	db   *sqlx.DB
-	repo admin_access_repository.AdminAccessRepository
+	repo admin_access_repository.Repository
 	ctx  context.Context
 }
 
-func (s *AdminAccessRepositorySuite) SetupSuite() {
+func (s *RepositorySuite) SetupSuite() {
 	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
 	s.Require().NoError(err)
 
-	s.repo = admin_access_repository.NewAdminAccessRepository(s.db, nil)
+	s.repo = admin_access_repository.NewRepository(s.db, nil)
 	s.ctx = context.Background()
 }
 
-func (s *AdminAccessRepositorySuite) SetupTest() {
+func (s *RepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
 INSERT INTO users (
 	id, created_at, deleted_at, first_name, last_name, language, email, password
@@ -68,27 +68,34 @@ INSERT INTO admin_access (user_id, created_at) VALUES
 	s.Require().NoError(err)
 }
 
-func (s *AdminAccessRepositorySuite) TearDownTest() {
+func (s *RepositorySuite) TearDownTest() {
 	_, err := s.db.ExecContext(s.ctx, `TRUNCATE TABLE users CASCADE`)
 	s.Require().NoError(err)
 }
 
-func (s *AdminAccessRepositorySuite) TestGetAdminAccessByUserID() {
-	got, err := s.repo.GetAdminAccessByUserID(s.ctx, seedAdminUserID)
+func (s *RepositorySuite) TestGetByUserID() {
+	got, err := s.repo.GetByUserID(s.ctx, seedAdminUserID)
 	s.Require().NoError(err)
 	s.Equal(seedAdminUserID, got.UserID.String())
 	s.True(got.CreatedAt.Equal(seedCreatedAtTime))
 }
 
-func (s *AdminAccessRepositorySuite) TestGetAdminAccessByUserID_NotFound() {
-	_, err := s.repo.GetAdminAccessByUserID(s.ctx, seedNonAdminUserID)
+func (s *RepositorySuite) TestGetByUserID_NotFound() {
+	_, err := s.repo.GetByUserID(s.ctx, seedNonAdminUserID)
 	s.requireNotFound(err)
 }
 
-func (s *AdminAccessRepositorySuite) TestWithTx() {
+func (s *RepositorySuite) TestDeleteByUserID() {
+	s.Require().NoError(s.repo.DeleteByUserID(s.ctx, seedAdminUserID))
+
+	_, err := s.repo.GetByUserID(s.ctx, seedAdminUserID)
+	s.requireNotFound(err)
+}
+
+func (s *RepositorySuite) TestWithTx() {
 	var gotUserID string
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
-		got, err := s.repo.WithTx(tx).GetAdminAccessByUserID(s.ctx, seedAdminUserID)
+		got, err := s.repo.WithTx(tx).GetByUserID(s.ctx, seedAdminUserID)
 		if err != nil {
 			return err
 		}
@@ -99,7 +106,7 @@ func (s *AdminAccessRepositorySuite) TestWithTx() {
 	s.Equal(seedAdminUserID, gotUserID)
 }
 
-func (s *AdminAccessRepositorySuite) requireNotFound(err error) {
+func (s *RepositorySuite) requireNotFound(err error) {
 	s.T().Helper()
 	s.Require().Error(err)
 	var apiErr *chi_error.Error

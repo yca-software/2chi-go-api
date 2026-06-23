@@ -37,30 +37,30 @@ func TestMain(m *testing.M) {
 	os.Exit(testutil.IntegrationTestMain(m))
 }
 
-func TestAuditLogsRepositorySuite(t *testing.T) {
-	suite.Run(t, new(AuditLogsRepositorySuite))
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(RepositorySuite))
 }
 
-type AuditLogsRepositorySuite struct {
+type RepositorySuite struct {
 	suite.Suite
 
 	db   *sqlx.DB
-	repo audit_log_repository.AuditLogsRepository
+	repo audit_log_repository.Repository
 	ctx  context.Context
 }
 
-func (s *AuditLogsRepositorySuite) SetupSuite() {
+func (s *RepositorySuite) SetupSuite() {
 	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
 	s.Require().NoError(err)
 
-	s.repo = audit_log_repository.NewAuditLogsRepository(s.db, nil)
+	s.repo = audit_log_repository.NewRepository(s.db, nil)
 	s.ctx = context.Background()
 }
 
-func (s *AuditLogsRepositorySuite) SetupTest() {
+func (s *RepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
 INSERT INTO users (
 	id, created_at, deleted_at, first_name, last_name, language, email, password
@@ -68,8 +68,8 @@ INSERT INTO users (
 	'11111111-1111-1111-1111-111111111501', '2024-01-01T00:00:00Z', NULL, 'Audit', 'Actor', 'en',
 	'audit-actor@example.com', 'hash'
 );
-INSERT INTO organizations (id, created_at, deleted_at, name) VALUES (
-	'22222222-2222-2222-2222-222222222501', '2024-01-01T00:00:00Z', NULL, 'Audit Org'
+INSERT INTO organizations (id, created_at, deleted_at, name, address, city, zip, country, place_id, geo, timezone) VALUES (
+	'22222222-2222-2222-2222-222222222501', '2024-01-01T00:00:00Z', NULL, 'Audit Org', '1 Main St', 'Oslo', '0001', 'NO', 'place_seed_audit', ST_SetSRID(ST_MakePoint(10.7, 59.9), 4326), 'Europe/Oslo'
 );
 INSERT INTO audit_logs (
 	id, created_at, organization_id, actor_id, actor_info, impersonated_by_id, impersonated_by_email,
@@ -84,12 +84,12 @@ INSERT INTO audit_logs (
 	s.Require().NoError(err)
 }
 
-func (s *AuditLogsRepositorySuite) TearDownTest() {
+func (s *RepositorySuite) TearDownTest() {
 	_, err := s.db.ExecContext(s.ctx, `TRUNCATE TABLE audit_logs, organizations, users CASCADE`)
 	s.Require().NoError(err)
 }
 
-func (s *AuditLogsRepositorySuite) TestCreateAuditLog() {
+func (s *RepositorySuite) TestCreate() {
 	raw := json.RawMessage(`{"ok":true}`)
 	log := &models.AuditLog{
 		ID:                  uuid.MustParse(seedAuditLogNewID),
@@ -103,22 +103,22 @@ func (s *AuditLogsRepositorySuite) TestCreateAuditLog() {
 		ResourceID:          uuid.MustParse(seedAuditActorID),
 		Data:                &raw,
 	}
-	s.Require().NoError(s.repo.CreateAuditLog(s.ctx, log))
+	s.Require().NoError(s.repo.Create(s.ctx, log))
 
-	rows, err := s.repo.ListAuditLogsByOrganizationID(s.ctx, seedAuditOrgID, nil, 10, 0)
+	rows, err := s.repo.ListByOrganizationID(s.ctx, seedAuditOrgID, nil, 10, 0)
 	s.Require().NoError(err)
 	s.GreaterOrEqual(len(*rows), 3)
 }
 
-func (s *AuditLogsRepositorySuite) TestListAuditLogsByOrganizationID() {
-	rows, err := s.repo.ListAuditLogsByOrganizationID(s.ctx, seedAuditOrgID, nil, 10, 0)
+func (s *RepositorySuite) TestListByOrganizationID() {
+	rows, err := s.repo.ListByOrganizationID(s.ctx, seedAuditOrgID, nil, 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(*rows, 2)
 	s.Equal(seedAuditLogID, (*rows)[0].ID.String())
 }
 
-func (s *AuditLogsRepositorySuite) TestListAuditLogsByOrganizationID_WithDateFilters() {
-	rows, err := s.repo.ListAuditLogsByOrganizationID(s.ctx, seedAuditOrgID, &audit_log_repository.AuditLogFilters{
+func (s *RepositorySuite) TestListByOrganizationID_WithDateFilters() {
+	rows, err := s.repo.ListByOrganizationID(s.ctx, seedAuditOrgID, &audit_log_repository.AuditLogFilters{
 		StartDate: &seedAuditFilterStart,
 		EndDate:   &seedAuditFilterEnd,
 	}, 10, 0)
@@ -127,7 +127,7 @@ func (s *AuditLogsRepositorySuite) TestListAuditLogsByOrganizationID_WithDateFil
 	s.Equal(seedAuditLogID, (*rows)[0].ID.String())
 }
 
-func (s *AuditLogsRepositorySuite) TestWithTx() {
+func (s *RepositorySuite) TestWithTx() {
 	raw := json.RawMessage(`{"tx":true}`)
 	log := &models.AuditLog{
 		ID:                  uuid.MustParse(seedAuditTxID),
@@ -142,11 +142,11 @@ func (s *AuditLogsRepositorySuite) TestWithTx() {
 		Data:                &raw,
 	}
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
-		return s.repo.WithTx(tx).CreateAuditLog(s.ctx, log)
+		return s.repo.WithTx(tx).Create(s.ctx, log)
 	})
 	s.Require().NoError(err)
 
-	rows, err := s.repo.ListAuditLogsByOrganizationID(s.ctx, seedAuditOrgID, nil, 10, 0)
+	rows, err := s.repo.ListByOrganizationID(s.ctx, seedAuditOrgID, nil, 10, 0)
 	s.Require().NoError(err)
 	found := false
 	for _, row := range *rows {

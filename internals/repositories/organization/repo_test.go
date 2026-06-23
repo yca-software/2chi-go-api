@@ -40,30 +40,30 @@ func TestMain(m *testing.M) {
 	os.Exit(testutil.IntegrationTestMain(m))
 }
 
-func TestOrganizationsRepositorySuite(t *testing.T) {
-	suite.Run(t, new(OrganizationsRepositorySuite))
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(RepositorySuite))
 }
 
-type OrganizationsRepositorySuite struct {
+type RepositorySuite struct {
 	suite.Suite
 
 	db   *sqlx.DB
-	repo organization_repository.OrganizationsRepository
+	repo organization_repository.Repository
 	ctx  context.Context
 }
 
-func (s *OrganizationsRepositorySuite) SetupSuite() {
+func (s *RepositorySuite) SetupSuite() {
 	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
 	s.Require().NoError(err)
 
-	s.repo = organization_repository.NewOrganizationsRepository(s.db, nil)
+	s.repo = organization_repository.NewRepository(s.db, nil)
 	s.ctx = context.Background()
 }
 
-func (s *OrganizationsRepositorySuite) SetupTest() {
+func (s *RepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
 INSERT INTO organizations (id, created_at, deleted_at, name, address, city, zip, country, place_id, geo, timezone) VALUES
 	('22222222-2222-2222-2222-222222222001', '2024-01-01T00:00:00Z', NULL, 'Active Org', '1 Main St', 'Oslo', '0001', 'NO', 'place_seed_001', ST_SetSRID(ST_MakePoint(10.7, 59.9), 4326), 'Europe/Oslo'),
@@ -76,12 +76,12 @@ INSERT INTO organizations (id, created_at, deleted_at, name, address, city, zip,
 	s.Require().NoError(err)
 }
 
-func (s *OrganizationsRepositorySuite) TearDownTest() {
+func (s *RepositorySuite) TearDownTest() {
 	_, err := s.db.ExecContext(s.ctx, `TRUNCATE TABLE organizations CASCADE`)
 	s.Require().NoError(err)
 }
 
-func (s *OrganizationsRepositorySuite) TestCreateOrganization() {
+func (s *RepositorySuite) TestCreate() {
 	org := &models.Organization{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{
@@ -98,49 +98,49 @@ func (s *OrganizationsRepositorySuite) TestCreateOrganization() {
 		Geo:      chi_types.Point{Lat: 59.9, Lng: 10.7},
 		Timezone: "Europe/Oslo",
 	}
-	s.Require().NoError(s.repo.CreateOrganization(s.ctx, org))
+	s.Require().NoError(s.repo.Create(s.ctx, org))
 
-	got, err := s.repo.GetOrganizationByID(s.ctx, seedNewOrgID)
+	got, err := s.repo.GetByID(s.ctx, seedNewOrgID)
 	s.Require().NoError(err)
 	s.Equal("New Org", got.Name)
 }
 
-func (s *OrganizationsRepositorySuite) TestUpdateOrganization() {
-	org, err := s.repo.GetOrganizationByID(s.ctx, seedUpdateOrgID)
+func (s *RepositorySuite) TestUpdate() {
+	org, err := s.repo.GetByID(s.ctx, seedUpdateOrgID)
 	s.Require().NoError(err)
 	originalUpdatedAt := org.UpdatedAt
 
 	org.Name = "Updated Org"
-	s.Require().NoError(s.repo.UpdateOrganization(s.ctx, org))
+	s.Require().NoError(s.repo.Update(s.ctx, org))
 
-	got, err := s.repo.GetOrganizationByID(s.ctx, seedUpdateOrgID)
+	got, err := s.repo.GetByID(s.ctx, seedUpdateOrgID)
 	s.Require().NoError(err)
 	s.Equal("Updated Org", got.Name)
 	s.True(got.UpdatedAt.After(originalUpdatedAt))
 }
 
-func (s *OrganizationsRepositorySuite) TestArchiveAndRestoreOrganization() {
-	org, err := s.repo.GetOrganizationByID(s.ctx, seedArchiveTargetOrgID)
+func (s *RepositorySuite) TestArchiveAndRestore() {
+	org, err := s.repo.GetByID(s.ctx, seedArchiveTargetOrgID)
 	s.Require().NoError(err)
-	s.Require().NoError(s.repo.ArchiveOrganization(s.ctx, org))
+	s.Require().NoError(s.repo.Archive(s.ctx, org))
 
-	_, err = s.repo.GetOrganizationByID(s.ctx, seedArchiveTargetOrgID)
+	_, err = s.repo.GetByID(s.ctx, seedArchiveTargetOrgID)
 	s.requireNotFound(err)
 
-	s.Require().NoError(s.repo.RestoreOrganization(s.ctx, seedRestoreOrgID))
-	got, err := s.repo.GetOrganizationByID(s.ctx, seedRestoreOrgID)
+	s.Require().NoError(s.repo.Restore(s.ctx, seedRestoreOrgID))
+	got, err := s.repo.GetByID(s.ctx, seedRestoreOrgID)
 	s.Require().NoError(err)
 	s.Nil(got.DeletedAt)
 }
 
-func (s *OrganizationsRepositorySuite) TestSearchOrganizations() {
-	activeRows, err := s.repo.SearchOrganizations(s.ctx, "FindMe", chi_archive.ArchiveFilterActive, 10, 0)
+func (s *RepositorySuite) TestSearch() {
+	activeRows, err := s.repo.Search(s.ctx, "FindMe", chi_archive.ArchiveFilterActive, 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(*activeRows, 1)
 	s.Equal(seedSearchActiveOrgID, (*activeRows)[0].ID.String())
 }
 
-func (s *OrganizationsRepositorySuite) TestWithTx() {
+func (s *RepositorySuite) TestWithTx() {
 	org := &models.Organization{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{
@@ -158,16 +158,16 @@ func (s *OrganizationsRepositorySuite) TestWithTx() {
 		Timezone: "Europe/Oslo",
 	}
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
-		return s.repo.WithTx(tx).CreateOrganization(s.ctx, org)
+		return s.repo.WithTx(tx).Create(s.ctx, org)
 	})
 	s.Require().NoError(err)
 
-	got, err := s.repo.GetOrganizationByID(s.ctx, "22222222-2222-2222-2222-22222222200c")
+	got, err := s.repo.GetByID(s.ctx, "22222222-2222-2222-2222-22222222200c")
 	s.Require().NoError(err)
 	s.Equal("Tx Org", got.Name)
 }
 
-func (s *OrganizationsRepositorySuite) requireNotFound(err error) {
+func (s *RepositorySuite) requireNotFound(err error) {
 	s.T().Helper()
 	s.Require().Error(err)
 	var apiErr *chi_error.Error

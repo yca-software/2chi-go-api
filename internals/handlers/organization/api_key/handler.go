@@ -34,8 +34,8 @@ func (h *APIKeysHandler) RegisterRoutes(detail *echo.Group) {
 // @Accept       json
 // @Produce      json
 // @Param        orgId   path      string                         true  "Organization ID"
-// @Param        apiKey  body      api_key_service.CreateAPIKeyRequest   true  "API key request"
-// @Success      201     {object}  api_key_service.CreateAPIKeyResponse
+// @Param        apiKey  body      api_key_service.CreateRequest   true  "API key request"
+// @Success      201     {object}  api_key_service.CreateResponse
 // @Failure      400     {object}  error.ErrorResponse
 // @Failure      401     {object}  error.ErrorResponse
 // @Failure      403     {object}  error.ErrorResponse
@@ -51,13 +51,13 @@ func (h *APIKeysHandler) CreateAPIKey(c echo.Context) error {
 		return err
 	}
 
-	var req api_key_service.CreateAPIKeyRequest
+	var req api_key_service.CreateRequest
 	if err := c.Bind(&req); err != nil {
 		return chi_error.NewBadRequestError(err, "InvalidRequestBody", nil)
 	}
 	req.OrganizationID = orgID
 
-	resp, err := h.apiKeysService.CreateAPIKey(ctx, &req, accessInfo)
+	resp, err := h.apiKeysService.Create(ctx, &req, accessInfo)
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func (h *APIKeysHandler) ListAPIKeys(c echo.Context) error {
 		return err
 	}
 
-	keys, err := h.apiKeysService.ListAPIKeys(ctx, &api_key_service.ListAPIKeysRequest{OrganizationID: orgID}, accessInfo)
+	keys, err := h.apiKeysService.List(ctx, &api_key_service.ListRequest{OrganizationID: orgID}, accessInfo)
 	if err != nil {
 		return err
 	}
@@ -101,7 +101,7 @@ func (h *APIKeysHandler) ListAPIKeys(c echo.Context) error {
 // @Produce      json
 // @Param        orgId      path      string                         true  "Organization ID"
 // @Param        apiKeyId   path      string                         true  "API key ID"
-// @Param        apiKey     body      api_key_service.UpdateAPIKeyRequest   true  "API key request"
+// @Param        apiKey     body      api_key_service.UpdateRequest   true  "API key request"
 // @Success      200        {object}  models.APIKey
 // @Failure      400        {object}  error.ErrorResponse
 // @Failure      401        {object}  error.ErrorResponse
@@ -118,14 +118,14 @@ func (h *APIKeysHandler) UpdateAPIKey(c echo.Context) error {
 		return err
 	}
 
-	var req api_key_service.UpdateAPIKeyRequest
+	var req api_key_service.UpdateRequest
 	if err := c.Bind(&req); err != nil {
 		return chi_error.NewBadRequestError(err, "InvalidRequestBody", nil)
 	}
 	req.OrganizationID = orgID
 	req.APIKeyID = c.Param("apiKeyId")
 
-	key, err := h.apiKeysService.UpdateAPIKey(ctx, &req, accessInfo)
+	key, err := h.apiKeysService.Update(ctx, &req, accessInfo)
 	if err != nil {
 		return err
 	}
@@ -155,7 +155,7 @@ func (h *APIKeysHandler) DeleteAPIKey(c echo.Context) error {
 		return err
 	}
 
-	if err := h.apiKeysService.DeleteAPIKey(ctx, &api_key_service.DeleteAPIKeyRequest{
+	if err := h.apiKeysService.Delete(ctx, &api_key_service.DeleteRequest{
 		OrganizationID: orgID,
 		APIKeyID:       c.Param("apiKeyId"),
 	}, accessInfo); err != nil {

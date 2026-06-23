@@ -15,7 +15,6 @@ import (
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	audit_log_repository "github.com/yca-software/2chi-go-api/internals/repositories/audit_log"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
-	organization_repository "github.com/yca-software/2chi-go-api/internals/repositories/organization"
 	audit_service "github.com/yca-software/2chi-go-api/internals/services/audit"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_types "github.com/yca-software/2chi-go-types"
@@ -27,9 +26,8 @@ type AuditServiceSuite struct {
 	ctx             context.Context
 	now             time.Time
 	orgID           uuid.UUID
-	auditRepo       *audit_log_repository.MockAuditLogsRepository
-	orgsRepo        *organization_repository.MockOrganizationsRepository
-	billingAccounts *billing_account_repository.MockOrganizationBillingAccountsRepository
+	auditRepo       *audit_log_repository.MockRepository
+	billingAccounts *billing_account_repository.MockRepository
 	svc             audit_service.Service
 }
 
@@ -41,9 +39,8 @@ func (s *AuditServiceSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.now = fixedNow()
 	s.orgID = uuid.New()
-	s.auditRepo = &audit_log_repository.MockAuditLogsRepository{}
-	s.orgsRepo = &organization_repository.MockOrganizationsRepository{}
-	s.billingAccounts = &billing_account_repository.MockOrganizationBillingAccountsRepository{}
+	s.auditRepo = &audit_log_repository.MockRepository{}
+	s.billingAccounts = &billing_account_repository.MockRepository{}
 
 	s.svc = audit_service.New(audit_service.Dependencies{
 		GenerateID: uuid.NewV7,
@@ -53,7 +50,6 @@ func (s *AuditServiceSuite) SetupTest() {
 		Authorizer: authz.NewAuthorizer(func() time.Time { return s.now }),
 		Repositories: &repositories.Repositories{
 			AuditLogs:                   s.auditRepo,
-			Organizations:               s.orgsRepo,
 			OrganizationBillingAccounts: s.billingAccounts,
 		},
 	})
@@ -73,9 +69,9 @@ func (s *AuditServiceSuite) readAccess() *chi_types.AccessInfo {
 
 func (s *AuditServiceSuite) TestCreateAuditLog_Success() {
 	resourceID := uuid.New()
-	s.auditRepo.On("CreateAuditLog", s.ctx, mock.AnythingOfType("*models.AuditLog")).Return(nil).Once()
+	s.auditRepo.On("Create", s.ctx, mock.AnythingOfType("*models.AuditLog")).Return(nil).Once()
 
-	log, err := s.svc.CreateAuditLog(s.ctx, &audit_service.CreateAuditLogRequest{
+	log, err := s.svc.Create(s.ctx, &audit_service.CreateRequest{
 		OrganizationID: s.orgID.String(),
 		Action:         constants.AUDIT_ACTION_TYPE_CREATE,
 		ResourceType:   constants.RESOURCE_TYPE_ORGANIZATION,
@@ -96,13 +92,13 @@ func (s *AuditServiceSuite) TestCreateAuditLog_ImpersonationAttribution() {
 		ImpersonatedBy:      uuid.NullUUID{UUID: adminID, Valid: true},
 		ImpersonatedByEmail: "admin@example.com",
 	}
-	s.auditRepo.On("CreateAuditLog", s.ctx, mock.MatchedBy(func(log *models.AuditLog) bool {
+	s.auditRepo.On("Create", s.ctx, mock.MatchedBy(func(log *models.AuditLog) bool {
 		return log.ImpersonatedByID.Valid &&
 			log.ImpersonatedByID.UUID == adminID &&
 			log.ImpersonatedByEmail == "admin@example.com"
 	})).Return(nil).Once()
 
-	log, err := s.svc.CreateAuditLog(s.ctx, &audit_service.CreateAuditLogRequest{
+	log, err := s.svc.Create(s.ctx, &audit_service.CreateRequest{
 		OrganizationID: s.orgID.String(),
 		Action:         constants.AUDIT_ACTION_TYPE_UPDATE,
 		ResourceType:   constants.RESOURCE_TYPE_ORGANIZATION,
@@ -116,7 +112,7 @@ func (s *AuditServiceSuite) TestCreateAuditLog_ImpersonationAttribution() {
 }
 
 func (s *AuditServiceSuite) TestCreateAuditLog_Validation_MissingAction() {
-	log, err := s.svc.CreateAuditLog(s.ctx, &audit_service.CreateAuditLogRequest{
+	log, err := s.svc.Create(s.ctx, &audit_service.CreateRequest{
 		OrganizationID: s.orgID.String(),
 		ResourceType:   constants.RESOURCE_TYPE_ORGANIZATION,
 		ResourceID:     uuid.New().String(),
@@ -127,12 +123,10 @@ func (s *AuditServiceSuite) TestCreateAuditLog_Validation_MissingAction() {
 }
 
 func (s *AuditServiceSuite) TestListAuditLogs_FreePlanFeatureDenied() {
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
-		Return(organization(s.orgID, "Acme"), nil).Once()
-	s.billingAccounts.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccounts.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(billingAccount(s.orgID, constants.TIER_FREE, constants.BILLING_PROVIDER_PADDLE, nil), nil).Once()
 
-	_, err := s.svc.ListAuditLogsForOrganization(s.ctx, &audit_service.ListAuditLogsForOrganizationRequest{
+	_, err := s.svc.ListForOrganization(s.ctx, &audit_service.ListForOrganizationRequest{
 		OrganizationID: s.orgID.String(),
 		Limit:          20,
 	}, s.readAccess())
@@ -148,14 +142,12 @@ func (s *AuditServiceSuite) TestListAuditLogs_Success() {
 		ResourceID:     uuid.New(),
 	}}
 	expiresAt := s.now.Add(24 * time.Hour)
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
-		Return(organization(s.orgID, "Acme"), nil).Once()
-	s.billingAccounts.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccounts.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(billingAccount(s.orgID, constants.TIER_BASIC, constants.BILLING_PROVIDER_PADDLE, &expiresAt), nil).Once()
-	s.auditRepo.On("ListAuditLogsByOrganizationID", s.ctx, s.orgID.String(), mock.Anything, 21, 0).
+	s.auditRepo.On("ListByOrganizationID", s.ctx, s.orgID.String(), mock.Anything, 21, 0).
 		Return(&logs, nil).Once()
 
-	resp, err := s.svc.ListAuditLogsForOrganization(s.ctx, &audit_service.ListAuditLogsForOrganizationRequest{
+	resp, err := s.svc.ListForOrganization(s.ctx, &audit_service.ListForOrganizationRequest{
 		OrganizationID: s.orgID.String(),
 		Limit:          20,
 	}, s.readAccess())
@@ -175,14 +167,12 @@ func (s *AuditServiceSuite) TestListAuditLogs_HasNext() {
 		}
 	}
 	expiresAt := s.now.Add(24 * time.Hour)
-	s.orgsRepo.On("GetOrganizationByID", s.ctx, s.orgID.String()).
-		Return(organization(s.orgID, "Acme"), nil).Once()
-	s.billingAccounts.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, s.orgID.String()).
+	s.billingAccounts.On("GetByOrganizationID", s.ctx, s.orgID.String()).
 		Return(billingAccount(s.orgID, constants.TIER_BASIC, constants.BILLING_PROVIDER_PADDLE, &expiresAt), nil).Once()
-	s.auditRepo.On("ListAuditLogsByOrganizationID", s.ctx, s.orgID.String(), mock.Anything, 21, 0).
+	s.auditRepo.On("ListByOrganizationID", s.ctx, s.orgID.String(), mock.Anything, 21, 0).
 		Return(&logs, nil).Once()
 
-	resp, err := s.svc.ListAuditLogsForOrganization(s.ctx, &audit_service.ListAuditLogsForOrganizationRequest{
+	resp, err := s.svc.ListForOrganization(s.ctx, &audit_service.ListForOrganizationRequest{
 		OrganizationID: s.orgID.String(),
 		Limit:          20,
 	}, s.readAccess())
@@ -193,7 +183,7 @@ func (s *AuditServiceSuite) TestListAuditLogs_HasNext() {
 
 func (s *AuditServiceSuite) TestCreateAuditLog_SanitizesData() {
 	raw := json.RawMessage(`{"password":"secret","name":"Acme"}`)
-	s.auditRepo.On("CreateAuditLog", s.ctx, mock.MatchedBy(func(log *models.AuditLog) bool {
+	s.auditRepo.On("Create", s.ctx, mock.MatchedBy(func(log *models.AuditLog) bool {
 		if log.Data == nil {
 			return false
 		}
@@ -205,7 +195,7 @@ func (s *AuditServiceSuite) TestCreateAuditLog_SanitizesData() {
 		return hasPassword && payload["password"] == "[redacted]" && payload["name"] == "Acme"
 	})).Return(nil).Once()
 
-	_, err := s.svc.CreateAuditLog(s.ctx, &audit_service.CreateAuditLogRequest{
+	_, err := s.svc.Create(s.ctx, &audit_service.CreateRequest{
 		OrganizationID: s.orgID.String(),
 		Action:         constants.AUDIT_ACTION_TYPE_UPDATE,
 		ResourceType:   constants.RESOURCE_TYPE_ORGANIZATION,
@@ -217,7 +207,7 @@ func (s *AuditServiceSuite) TestCreateAuditLog_SanitizesData() {
 }
 
 func (s *AuditServiceSuite) TestListAuditLogs_Validation() {
-	_, err := s.svc.ListAuditLogsForOrganization(s.ctx, &audit_service.ListAuditLogsForOrganizationRequest{
+	_, err := s.svc.ListForOrganization(s.ctx, &audit_service.ListForOrganizationRequest{
 		OrganizationID: s.orgID.String(),
 		Limit:          0,
 	}, s.readAccess())
@@ -254,18 +244,8 @@ func mockLogger() chi_logger.Logger {
 	return m
 }
 
-func organization(orgID uuid.UUID, name string) *models.Organization {
-	return &models.Organization{
-		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
-			ModelBase: chi_types.ModelBase{ID: orgID},
-		},
-		Name: name,
-	}
-}
-
 func billingAccount(orgID uuid.UUID, tier, provider string, expiresAt *time.Time) *models.OrganizationBillingAccount {
 	return &models.OrganizationBillingAccount{
-		ModelBase:             chi_types.ModelBase{ID: orgID},
 		OrganizationID:        orgID,
 		Provider:              provider,
 		SubscriptionTier:      tier,

@@ -123,9 +123,9 @@ func (s *OrganizationsHandlerSuite) TestListAuditLogs_InvalidStartDate() {
 
 func (s *OrganizationsHandlerSuite) TestListAuditLogs_Success() {
 	start := time.Now().UTC().Format(time.RFC3339)
-	s.auditSvc.On("ListAuditLogsForOrganization", mock.Anything, mock.MatchedBy(func(req *audit_service.ListAuditLogsForOrganizationRequest) bool {
+	s.auditSvc.On("ListForOrganization", mock.Anything, mock.MatchedBy(func(req *audit_service.ListForOrganizationRequest) bool {
 		return req.OrganizationID == testOrgID
-	}), s.userAccess).Return(&audit_service.ListAuditLogsForOrganizationResponse{}, nil).Once()
+	}), s.userAccess).Return(&audit_service.ListForOrganizationResponse{}, nil).Once()
 
 	s.echo.GET("/api/v1/organization/:orgId/audit-log", s.handler.ListAuditLogs, s.withAccess)
 	rec := s.get("/api/v1/organization/" + testOrgID + "/audit-log?startDate=" + start)

@@ -12,40 +12,40 @@ import (
 )
 
 const (
-	AdminAccessTableName = "admin_access"
+	TableName = "admin_access"
 )
 
 var (
-	AdminAccessColumns = []string{"user_id", "created_at"}
+	Columns = []string{"user_id", "created_at"}
 )
 
-type AdminAccessRepository interface {
-	WithTx(tx chi_repository.Tx) AdminAccessRepository
+type Repository interface {
+	WithTx(tx chi_repository.Tx) Repository
 
-	GetAdminAccessByUserID(ctx context.Context, userID string) (*models.AdminAccess, error)
-	DeleteAdminAccessByUserID(ctx context.Context, userID string) error
+	GetByUserID(ctx context.Context, userID string) (*models.AdminAccess, error)
+	DeleteByUserID(ctx context.Context, userID string) error
 }
 
-type adminAccessRepository struct {
-	adminAccessRepo chi_repository.Repository[models.AdminAccess]
+type repository struct {
+	repo chi_repository.Repository[models.AdminAccess]
 }
 
-func NewAdminAccessRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) AdminAccessRepository {
-	return &adminAccessRepository{
-		adminAccessRepo: chi_repository.NewRepository[models.AdminAccess](db, AdminAccessTableName, AdminAccessColumns, metricsHook),
+func NewRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) Repository {
+	return &repository{
+		repo: chi_repository.NewRepository[models.AdminAccess](db, TableName, Columns, metricsHook),
 	}
 }
 
-func (r *adminAccessRepository) WithTx(tx chi_repository.Tx) AdminAccessRepository {
-	return &adminAccessRepository{
-		adminAccessRepo: r.adminAccessRepo.WithTx(tx),
+func (r *repository) WithTx(tx chi_repository.Tx) Repository {
+	return &repository{
+		repo: r.repo.WithTx(tx),
 	}
 }
 
-func (r *adminAccessRepository) GetAdminAccessByUserID(ctx context.Context, userID string) (*models.AdminAccess, error) {
-	return r.adminAccessRepo.Get(ctx, squirrel.Eq{"user_id": userID}, nil)
+func (r *repository) GetByUserID(ctx context.Context, userID string) (*models.AdminAccess, error) {
+	return r.repo.Get(ctx, squirrel.Eq{"user_id": userID}, nil)
 }
 
-func (r *adminAccessRepository) DeleteAdminAccessByUserID(ctx context.Context, userID string) error {
-	return r.adminAccessRepo.Delete(ctx, squirrel.Eq{"user_id": userID})
+func (r *repository) DeleteByUserID(ctx context.Context, userID string) error {
+	return r.repo.Delete(ctx, squirrel.Eq{"user_id": userID})
 }

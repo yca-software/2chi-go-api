@@ -14,41 +14,41 @@ import (
 )
 
 const (
-	UserPasswordResetTokensTableName = "user_password_reset_tokens"
+	TableName = "user_password_reset_tokens"
 )
 
 var (
-	UserPasswordResetTokensColumns = []string{"id", "created_at", "updated_at", "user_id", "expires_at", "used_at", "token_hash"}
+	Columns = []string{"id", "created_at", "updated_at", "user_id", "expires_at", "used_at", "token_hash"}
 )
 
-type UserPasswordResetTokenRepository interface {
-	WithTx(tx chi_repository.Tx) UserPasswordResetTokenRepository
+type Repository interface {
+	WithTx(tx chi_repository.Tx) Repository
 
-	CreatePasswordResetToken(ctx context.Context, token *models.UserPasswordResetToken) error
-	GetPasswordResetTokenByHash(ctx context.Context, hash string) (*models.UserPasswordResetToken, error)
-	MarkPasswordResetTokenAsUsed(ctx context.Context, tokenID string) error
-	CleanupStaleUnusedPasswordResetTokens(ctx context.Context) error
+	Create(ctx context.Context, token *models.UserPasswordResetToken) error
+	GetByHash(ctx context.Context, hash string) (*models.UserPasswordResetToken, error)
+	MarkAsUsed(ctx context.Context, tokenID string) error
+	CleanupStaleUnused(ctx context.Context) error
 }
 
-type userPasswordResetTokenRepository struct {
-	passwordResetTokensRepo chi_repository.Repository[models.UserPasswordResetToken]
+type repository struct {
+	repo chi_repository.Repository[models.UserPasswordResetToken]
 }
 
-func NewUserPasswordResetTokenRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) UserPasswordResetTokenRepository {
-	return &userPasswordResetTokenRepository{
-		passwordResetTokensRepo: chi_repository.NewRepository[models.UserPasswordResetToken](db, UserPasswordResetTokensTableName, UserPasswordResetTokensColumns, metricsHook),
+func NewRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) Repository {
+	return &repository{
+		repo: chi_repository.NewRepository[models.UserPasswordResetToken](db, TableName, Columns, metricsHook),
 	}
 }
 
-func (r *userPasswordResetTokenRepository) WithTx(tx chi_repository.Tx) UserPasswordResetTokenRepository {
-	return &userPasswordResetTokenRepository{
-		passwordResetTokensRepo: r.passwordResetTokensRepo.WithTx(tx),
+func (r *repository) WithTx(tx chi_repository.Tx) Repository {
+	return &repository{
+		repo: r.repo.WithTx(tx),
 	}
 }
 
-func (r *userPasswordResetTokenRepository) CreatePasswordResetToken(ctx context.Context, token *models.UserPasswordResetToken) error {
+func (r *repository) Create(ctx context.Context, token *models.UserPasswordResetToken) error {
 	now := time.Now()
-	return r.passwordResetTokensRepo.Create(ctx, map[string]any{
+	return r.repo.Create(ctx, map[string]any{
 		"id":         token.ID,
 		"created_at": now,
 		"updated_at": now,
@@ -58,20 +58,20 @@ func (r *userPasswordResetTokenRepository) CreatePasswordResetToken(ctx context.
 	})
 }
 
-func (r *userPasswordResetTokenRepository) GetPasswordResetTokenByHash(ctx context.Context, hash string) (*models.UserPasswordResetToken, error) {
-	return r.passwordResetTokensRepo.Get(ctx, squirrel.Eq{"token_hash": hash}, nil)
+func (r *repository) GetByHash(ctx context.Context, hash string) (*models.UserPasswordResetToken, error) {
+	return r.repo.Get(ctx, squirrel.Eq{"token_hash": hash}, nil)
 }
 
-func (r *userPasswordResetTokenRepository) MarkPasswordResetTokenAsUsed(ctx context.Context, tokenID string) error {
-	return r.passwordResetTokensRepo.Update(ctx, squirrel.Eq{"id": tokenID, "used_at": nil}, map[string]any{
+func (r *repository) MarkAsUsed(ctx context.Context, tokenID string) error {
+	return r.repo.Update(ctx, squirrel.Eq{"id": tokenID, "used_at": nil}, map[string]any{
 		"used_at":    time.Now(),
 		"updated_at": time.Now(),
 	})
 }
 
-func (r *userPasswordResetTokenRepository) CleanupStaleUnusedPasswordResetTokens(ctx context.Context) error {
+func (r *repository) CleanupStaleUnused(ctx context.Context) error {
 	threshold := time.Now().Add(-chi_archive.ArchivedDataRetentionPeriod)
-	return r.passwordResetTokensRepo.Delete(ctx, squirrel.Or{
+	return r.repo.Delete(ctx, squirrel.Or{
 		squirrel.And{
 			squirrel.NotEq{"used_at": nil},
 			squirrel.LtOrEq{"used_at": threshold},

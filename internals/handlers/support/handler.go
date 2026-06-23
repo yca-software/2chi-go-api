@@ -31,7 +31,7 @@ func (h *SupportHandler) RegisterRoutes(e *echo.Echo, authMiddleware echo.Middle
 // @Tags         support
 // @Accept       json
 // @Produce      json
-// @Param        body  body      support_service.SubmitSupportRequest  true  "Support request"
+// @Param        body  body      support_service.SubmitRequest  true  "Support request"
 // @Success      204
 // @Failure      401  {object}  error.ErrorResponse
 // @Failure      403  {object}  error.ErrorResponse
@@ -46,7 +46,7 @@ func (h *SupportHandler) Submit(c echo.Context) error {
 		return err
 	}
 
-	var req support_service.SubmitSupportRequest
+	var req support_service.SubmitRequest
 	if err := c.Bind(&req); err != nil {
 		return err
 	}

@@ -25,9 +25,9 @@ import (
 
 const (
 	seedActiveUserID     = "11111111-1111-1111-1111-111111111001"
-	seedUpdateUserID     = "11111111-1111-1111-1111-111111111002"
+	seedUpdateID     = "11111111-1111-1111-1111-111111111002"
 	seedArchiveTargetID  = "11111111-1111-1111-1111-111111111003"
-	seedRestoreUserID    = "11111111-1111-1111-1111-111111111004"
+	seedRestoreID    = "11111111-1111-1111-1111-111111111004"
 	seedArchivedUserID   = "11111111-1111-1111-1111-111111111006"
 	seedStaleArchivedID  = "11111111-1111-1111-1111-111111111007"
 	seedSearchActiveID   = "11111111-1111-1111-1111-111111111008"
@@ -47,30 +47,30 @@ func TestMain(m *testing.M) {
 	os.Exit(testutil.IntegrationTestMain(m))
 }
 
-func TestUsersRepositorySuite(t *testing.T) {
-	suite.Run(t, new(UsersRepositorySuite))
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(RepositorySuite))
 }
 
-type UsersRepositorySuite struct {
+type RepositorySuite struct {
 	suite.Suite
 
 	db   *sqlx.DB
-	repo user_repository.UsersRepository
+	repo user_repository.Repository
 	ctx  context.Context
 }
 
-func (s *UsersRepositorySuite) SetupSuite() {
+func (s *RepositorySuite) SetupSuite() {
 	testDB, err := testutil.GetIntegrationDB()
 	s.Require().NoError(err)
 
 	s.db, err = testDB.SQLx()
 	s.Require().NoError(err)
 
-	s.repo = user_repository.NewUsersRepository(s.db, nil)
+	s.repo = user_repository.NewRepository(s.db, nil)
 	s.ctx = context.Background()
 }
 
-func (s *UsersRepositorySuite) SetupTest() {
+func (s *RepositorySuite) SetupTest() {
 	_, err := s.db.ExecContext(s.ctx, `
 INSERT INTO users (
 	id, created_at, deleted_at, first_name, last_name, language, email, password
@@ -86,12 +86,12 @@ INSERT INTO users (
 	s.Require().NoError(err)
 }
 
-func (s *UsersRepositorySuite) TearDownTest() {
+func (s *RepositorySuite) TearDownTest() {
 	_, err := s.db.ExecContext(s.ctx, `TRUNCATE TABLE users CASCADE`)
 	s.Require().NoError(err)
 }
 
-func (s *UsersRepositorySuite) TestCreateUser() {
+func (s *RepositorySuite) TestCreate() {
 	user := &models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{
@@ -105,26 +105,26 @@ func (s *UsersRepositorySuite) TestCreateUser() {
 		Email:     seedNewUserEmail,
 		Password:  "hash",
 	}
-	s.Require().NoError(s.repo.CreateUser(s.ctx, user))
+	s.Require().NoError(s.repo.Create(s.ctx, user))
 
-	got, err := s.repo.GetUserByID(s.ctx, seedNewUserID)
+	got, err := s.repo.GetByID(s.ctx, seedNewUserID)
 	s.Require().NoError(err)
 	s.Equal(seedNewUserEmail, got.Email)
 	s.False(got.CreatedAt.IsZero())
 	s.False(got.UpdatedAt.IsZero())
 }
 
-func (s *UsersRepositorySuite) TestUpdateUser() {
-	user, err := s.repo.GetUserByID(s.ctx, seedUpdateUserID)
+func (s *RepositorySuite) TestUpdate() {
+	user, err := s.repo.GetByID(s.ctx, seedUpdateID)
 	s.Require().NoError(err)
 	originalUpdatedAt := user.UpdatedAt
 
 	user.FirstName = "UpdatedFirst"
 	user.LastName = "UpdatedLast"
 	user.Language = "de"
-	s.Require().NoError(s.repo.UpdateUser(s.ctx, user))
+	s.Require().NoError(s.repo.Update(s.ctx, user))
 
-	got, err := s.repo.GetUserByID(s.ctx, seedUpdateUserID)
+	got, err := s.repo.GetByID(s.ctx, seedUpdateID)
 	s.Require().NoError(err)
 	s.Equal("UpdatedFirst", got.FirstName)
 	s.Equal("UpdatedLast", got.LastName)
@@ -132,77 +132,77 @@ func (s *UsersRepositorySuite) TestUpdateUser() {
 	s.True(got.UpdatedAt.After(originalUpdatedAt))
 }
 
-func (s *UsersRepositorySuite) TestGetUserByID() {
-	got, err := s.repo.GetUserByID(s.ctx, seedActiveUserID)
+func (s *RepositorySuite) TestGetByID() {
+	got, err := s.repo.GetByID(s.ctx, seedActiveUserID)
 	s.Require().NoError(err)
 	s.Equal(seedActiveUserID, got.ID.String())
 	s.Equal(seedActiveEmail, got.Email)
 }
 
-func (s *UsersRepositorySuite) TestGetUserByID_NotFoundWhenArchived() {
-	_, err := s.repo.GetUserByID(s.ctx, seedArchivedUserID)
+func (s *RepositorySuite) TestGetByID_NotFoundWhenArchived() {
+	_, err := s.repo.GetByID(s.ctx, seedArchivedUserID)
 	s.requireNotFound(err)
 }
 
-func (s *UsersRepositorySuite) TestGetUserByIDIncludeArchived() {
-	got, err := s.repo.GetUserByIDIncludeArchived(s.ctx, seedArchivedUserID)
+func (s *RepositorySuite) TestGetByIDIncludeArchived() {
+	got, err := s.repo.GetByIDIncludeArchived(s.ctx, seedArchivedUserID)
 	s.Require().NoError(err)
 	s.NotNil(got.DeletedAt)
 }
 
-func (s *UsersRepositorySuite) TestGetUserByEmail() {
-	got, err := s.repo.GetUserByEmail(s.ctx, seedActiveEmail)
+func (s *RepositorySuite) TestGetByEmail() {
+	got, err := s.repo.GetByEmail(s.ctx, seedActiveEmail)
 	s.Require().NoError(err)
 	s.Equal(seedActiveUserID, got.ID.String())
 }
 
-func (s *UsersRepositorySuite) TestArchiveUser() {
-	user, err := s.repo.GetUserByID(s.ctx, seedArchiveTargetID)
+func (s *RepositorySuite) TestArchive() {
+	user, err := s.repo.GetByID(s.ctx, seedArchiveTargetID)
 	s.Require().NoError(err)
-	s.Require().NoError(s.repo.ArchiveUser(s.ctx, user))
+	s.Require().NoError(s.repo.Archive(s.ctx, user))
 
-	got, err := s.repo.GetUserByIDIncludeArchived(s.ctx, seedArchiveTargetID)
+	got, err := s.repo.GetByIDIncludeArchived(s.ctx, seedArchiveTargetID)
 	s.Require().NoError(err)
 	s.NotNil(got.DeletedAt)
 }
 
-func (s *UsersRepositorySuite) TestRestoreUser() {
-	s.Require().NoError(s.repo.RestoreUser(s.ctx, seedRestoreUserID))
+func (s *RepositorySuite) TestRestore() {
+	s.Require().NoError(s.repo.Restore(s.ctx, seedRestoreID))
 
-	got, err := s.repo.GetUserByID(s.ctx, seedRestoreUserID)
+	got, err := s.repo.GetByID(s.ctx, seedRestoreID)
 	s.Require().NoError(err)
 	s.Nil(got.DeletedAt)
 }
 
-func (s *UsersRepositorySuite) TestSearchUsers_ActiveAndArchived() {
-	activeRows, err := s.repo.SearchUsers(s.ctx, "FindMe", chi_archive.ArchiveFilterActive, 10, 0)
+func (s *RepositorySuite) TestSearch_ActiveAndArchived() {
+	activeRows, err := s.repo.Search(s.ctx, "FindMe", chi_archive.ArchiveFilterActive, 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(*activeRows, 1)
 	s.Equal(seedSearchActiveID, (*activeRows)[0].ID.String())
 
-	archivedRows, err := s.repo.SearchUsers(s.ctx, "FindMe", chi_archive.ArchiveFilterArchived, 10, 0)
+	archivedRows, err := s.repo.Search(s.ctx, "FindMe", chi_archive.ArchiveFilterArchived, 10, 0)
 	s.Require().NoError(err)
 	s.Require().Len(*archivedRows, 1)
 	s.Equal(seedSearchArchivedID, (*archivedRows)[0].ID.String())
 }
 
-func (s *UsersRepositorySuite) TestSearchUsers_InvalidFilter() {
-	_, err := s.repo.SearchUsers(s.ctx, "", chi_archive.ArchiveFilter("nope"), 10, 0)
+func (s *RepositorySuite) TestSearch_InvalidFilter() {
+	_, err := s.repo.Search(s.ctx, "", chi_archive.ArchiveFilter("nope"), 10, 0)
 	s.Require().Error(err)
 }
 
-func (s *UsersRepositorySuite) TestCleanupArchivedUsers() {
-	s.Require().NoError(s.repo.CleanupArchivedUsers(s.ctx))
+func (s *RepositorySuite) TestCleanupArchived() {
+	s.Require().NoError(s.repo.CleanupArchived(s.ctx))
 
-	_, err := s.repo.GetUserByIDIncludeArchived(s.ctx, seedStaleArchivedID)
+	_, err := s.repo.GetByIDIncludeArchived(s.ctx, seedStaleArchivedID)
 	s.requireNotFound(err)
 
-	got, err := s.repo.GetUserByIDIncludeArchived(s.ctx, seedArchivedUserID)
+	got, err := s.repo.GetByIDIncludeArchived(s.ctx, seedArchivedUserID)
 	s.Require().NoError(err)
 	s.NotNil(got.DeletedAt)
 }
 
-func (s *UsersRepositorySuite) TestWithTx() {
+func (s *RepositorySuite) TestWithTx() {
 	user := &models.User{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{
@@ -217,16 +217,16 @@ func (s *UsersRepositorySuite) TestWithTx() {
 		Password:  "hash",
 	}
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {
-		return s.repo.WithTx(tx).CreateUser(s.ctx, user)
+		return s.repo.WithTx(tx).Create(s.ctx, user)
 	})
 	s.Require().NoError(err)
 
-	got, err := s.repo.GetUserByID(s.ctx, seedTxUserID)
+	got, err := s.repo.GetByID(s.ctx, seedTxUserID)
 	s.Require().NoError(err)
 	s.Equal(seedTxUserEmail, got.Email)
 }
 
-func (s *UsersRepositorySuite) requireNotFound(err error) {
+func (s *RepositorySuite) requireNotFound(err error) {
 	s.T().Helper()
 	s.Require().Error(err)
 	var apiErr *chi_error.Error

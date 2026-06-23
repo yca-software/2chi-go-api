@@ -12,20 +12,20 @@ type MockService struct {
 	mock.Mock
 }
 
-func (m *MockService) CreateInvitation(ctx context.Context, req *CreateInvitationRequest, access *chi_types.AccessInfo) (*CreateInvitationResponse, error) {
+func (m *MockService) Create(ctx context.Context, req *CreateRequest, access *chi_types.AccessInfo) (*CreateResponse, error) {
 	args := m.Called(ctx, req, access)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*CreateInvitationResponse), args.Error(1)
+	return args.Get(0).(*CreateResponse), args.Error(1)
 }
 
-func (m *MockService) RevokeInvitation(ctx context.Context, req *RevokeInvitationRequest, access *chi_types.AccessInfo) error {
+func (m *MockService) Revoke(ctx context.Context, req *RevokeRequest, access *chi_types.AccessInfo) error {
 	args := m.Called(ctx, req, access)
 	return args.Error(0)
 }
 
-func (m *MockService) ListInvitations(ctx context.Context, req *ListInvitationsRequest, access *chi_types.AccessInfo) (*[]models.Invitation, error) {
+func (m *MockService) List(ctx context.Context, req *ListRequest, access *chi_types.AccessInfo) (*[]models.Invitation, error) {
 	args := m.Called(ctx, req, access)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -33,7 +33,7 @@ func (m *MockService) ListInvitations(ctx context.Context, req *ListInvitationsR
 	return args.Get(0).(*[]models.Invitation), args.Error(1)
 }
 
-func (m *MockService) CleanupStaleInvitations(ctx context.Context) error {
+func (m *MockService) CleanupStale(ctx context.Context) error {
 	args := m.Called(ctx)
 	return args.Error(0)
 }

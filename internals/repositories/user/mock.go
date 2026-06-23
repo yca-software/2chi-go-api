@@ -9,35 +9,35 @@ import (
 	chi_repository "github.com/yca-software/2chi-go-repository"
 )
 
-type MockUsersRepository struct {
+type MockRepository struct {
 	mock.Mock
 }
 
-func (m *MockUsersRepository) WithTx(_ chi_repository.Tx) UsersRepository {
+func (m *MockRepository) WithTx(_ chi_repository.Tx) Repository {
 	return m
 }
 
-func (m *MockUsersRepository) CreateUser(ctx context.Context, user *models.User) error {
+func (m *MockRepository) Create(ctx context.Context, user *models.User) error {
 	return m.Called(ctx, user).Error(0)
 }
 
-func (m *MockUsersRepository) UpdateUser(ctx context.Context, user *models.User) error {
+func (m *MockRepository) Update(ctx context.Context, user *models.User) error {
 	return m.Called(ctx, user).Error(0)
 }
 
-func (m *MockUsersRepository) ArchiveUser(ctx context.Context, user *models.User) error {
+func (m *MockRepository) Archive(ctx context.Context, user *models.User) error {
 	return m.Called(ctx, user).Error(0)
 }
 
-func (m *MockUsersRepository) RestoreUser(ctx context.Context, userID string) error {
+func (m *MockRepository) Restore(ctx context.Context, userID string) error {
 	return m.Called(ctx, userID).Error(0)
 }
 
-func (m *MockUsersRepository) CleanupArchivedUsers(ctx context.Context) error {
+func (m *MockRepository) CleanupArchived(ctx context.Context) error {
 	return m.Called(ctx).Error(0)
 }
 
-func (m *MockUsersRepository) GetUserByID(ctx context.Context, id string) (*models.User, error) {
+func (m *MockRepository) GetByID(ctx context.Context, id string) (*models.User, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -45,7 +45,7 @@ func (m *MockUsersRepository) GetUserByID(ctx context.Context, id string) (*mode
 	return args.Get(0).(*models.User), args.Error(1)
 }
 
-func (m *MockUsersRepository) GetUserByIDIncludeArchived(ctx context.Context, id string) (*models.User, error) {
+func (m *MockRepository) GetByIDIncludeArchived(ctx context.Context, id string) (*models.User, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -53,7 +53,7 @@ func (m *MockUsersRepository) GetUserByIDIncludeArchived(ctx context.Context, id
 	return args.Get(0).(*models.User), args.Error(1)
 }
 
-func (m *MockUsersRepository) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
+func (m *MockRepository) GetByEmail(ctx context.Context, email string) (*models.User, error) {
 	args := m.Called(ctx, email)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -61,7 +61,7 @@ func (m *MockUsersRepository) GetUserByEmail(ctx context.Context, email string) 
 	return args.Get(0).(*models.User), args.Error(1)
 }
 
-func (m *MockUsersRepository) SearchUsers(ctx context.Context, searchPhrase string, filter chi_archive.ArchiveFilter, limit, offset int) (*[]models.User, error) {
+func (m *MockRepository) Search(ctx context.Context, searchPhrase string, filter chi_archive.ArchiveFilter, limit, offset int) (*[]models.User, error) {
 	args := m.Called(ctx, searchPhrase, filter, limit, offset)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

@@ -170,11 +170,11 @@ func (s *AdminHandlerSuite) TestListOrganizations_Success() {
 }
 
 func (s *AdminHandlerSuite) TestListOrganizationAuditLogs_Success() {
-	s.auditService.On("ListAuditLogsForOrganization", mock.Anything, mock.MatchedBy(func(req *audit_service.ListAuditLogsForOrganizationRequest) bool {
+	s.auditService.On("ListForOrganization", mock.Anything, mock.MatchedBy(func(req *audit_service.ListForOrganizationRequest) bool {
 		return req.OrganizationID == testOrgID &&
 			req.Limit == 50 &&
 			req.Offset == 0
-	}), s.adminAccess).Return(&audit_service.ListAuditLogsForOrganizationResponse{}, nil).Once()
+	}), s.adminAccess).Return(&audit_service.ListForOrganizationResponse{}, nil).Once()
 
 	s.echo.GET("/api/v1/admin/organization/:orgId/audit-log", s.handler.ListOrganizationAuditLogs, s.withAccess)
 

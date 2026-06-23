@@ -53,14 +53,14 @@ func TestApplyValidatedAccessTokenImpersonationClaims_MatchesDB(t *testing.T) {
 	userID := uuid.MustParse("11111111-1111-4111-8111-111111111101")
 	adminID := uuid.MustParse("33333333-3333-4333-8333-333333333301")
 
-	refreshTokensRepo := &user_refresh_token_repository.MockUserRefreshTokenRepository{}
-	refreshTokensRepo.On("GetActiveImpersonationRefreshTokenByUserID", ctx, userID.String()).
+	refreshTokensRepo := &user_refresh_token_repository.MockRepository{}
+	refreshTokensRepo.On("GetActiveImpersonationByUserID", ctx, userID.String()).
 		Return(&models.UserRefreshToken{
 			ImpersonatedBy: uuid.NullUUID{UUID: adminID, Valid: true},
 		}, nil)
 
-	usersRepo := &user_repository.MockUsersRepository{}
-	usersRepo.On("GetUserByID", ctx, adminID.String()).
+	usersRepo := &user_repository.MockRepository{}
+	usersRepo.On("GetByID", ctx, adminID.String()).
 		Return(&models.User{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: adminID},
@@ -89,8 +89,8 @@ func TestApplyValidatedAccessTokenImpersonationClaims_RejectsForgedJWT(t *testin
 	userID := uuid.MustParse("11111111-1111-4111-8111-111111111101")
 	forgedAdminID := uuid.MustParse("44444444-4444-4444-8444-444444444401")
 
-	refreshTokensRepo := &user_refresh_token_repository.MockUserRefreshTokenRepository{}
-	refreshTokensRepo.On("GetActiveImpersonationRefreshTokenByUserID", ctx, userID.String()).
+	refreshTokensRepo := &user_refresh_token_repository.MockRepository{}
+	refreshTokensRepo.On("GetActiveImpersonationByUserID", ctx, userID.String()).
 		Return(nil, chi_error.NewNotFoundError(nil, "NotFound", nil))
 
 	access := &chi_types.AccessInfo{
@@ -119,14 +119,14 @@ func TestApplyValidatedAccessTokenImpersonationClaims_NoJWTClaimUsesDB(t *testin
 	userID := uuid.MustParse("11111111-1111-4111-8111-111111111101")
 	adminID := uuid.MustParse("33333333-3333-4333-8333-333333333301")
 
-	refreshTokensRepo := &user_refresh_token_repository.MockUserRefreshTokenRepository{}
-	refreshTokensRepo.On("GetActiveImpersonationRefreshTokenByUserID", ctx, userID.String()).
+	refreshTokensRepo := &user_refresh_token_repository.MockRepository{}
+	refreshTokensRepo.On("GetActiveImpersonationByUserID", ctx, userID.String()).
 		Return(&models.UserRefreshToken{
 			ImpersonatedBy: uuid.NullUUID{UUID: adminID, Valid: true},
 		}, nil)
 
-	usersRepo := &user_repository.MockUsersRepository{}
-	usersRepo.On("GetUserByID", ctx, adminID.String()).
+	usersRepo := &user_repository.MockRepository{}
+	usersRepo.On("GetByID", ctx, adminID.String()).
 		Return(&models.User{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: adminID},

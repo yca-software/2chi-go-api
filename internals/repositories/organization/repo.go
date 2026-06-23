@@ -14,40 +14,40 @@ import (
 )
 
 const (
-	OrganizationsTableName = "organizations"
+	TableName = "organizations"
 )
 
 var (
-	OrganizationsColumns = []string{"id", "created_at", "updated_at", "deleted_at", "name", "address", "city", "zip", "country", "place_id", "geo", "timezone"}
+	Columns = []string{"id", "created_at", "updated_at", "deleted_at", "name", "address", "city", "zip", "country", "place_id", "geo", "timezone"}
 )
 
-type OrganizationsRepository interface {
-	WithTx(tx chi_repository.Tx) OrganizationsRepository
+type Repository interface {
+	WithTx(tx chi_repository.Tx) Repository
 
-	CreateOrganization(ctx context.Context, organization *models.Organization) error
-	UpdateOrganization(ctx context.Context, organization *models.Organization) error
-	ArchiveOrganization(ctx context.Context, organization *models.Organization) error
-	RestoreOrganization(ctx context.Context, id string) error
-	CleanupArchivedOrganizations(ctx context.Context) error
+	Create(ctx context.Context, organization *models.Organization) error
+	Update(ctx context.Context, organization *models.Organization) error
+	Archive(ctx context.Context, organization *models.Organization) error
+	Restore(ctx context.Context, id string) error
+	CleanupArchived(ctx context.Context) error
 
-	GetOrganizationByID(ctx context.Context, id string) (*models.Organization, error)
-	GetOrganizationByIDIncludeArchived(ctx context.Context, id string) (*models.Organization, error)
-	SearchOrganizations(ctx context.Context, searchPhrase string, filter chi_archive.ArchiveFilter, limit, offset int) (*[]models.Organization, error)
+	GetByID(ctx context.Context, id string) (*models.Organization, error)
+	GetByIDIncludeArchived(ctx context.Context, id string) (*models.Organization, error)
+	Search(ctx context.Context, searchPhrase string, filter chi_archive.ArchiveFilter, limit, offset int) (*[]models.Organization, error)
 }
 
-type organizationsRepository struct {
-	organizationsRepo chi_repository.Repository[models.Organization]
+type repository struct {
+	repo chi_repository.Repository[models.Organization]
 }
 
-func NewOrganizationsRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) OrganizationsRepository {
-	return &organizationsRepository{
-		organizationsRepo: chi_repository.NewRepository[models.Organization](db, OrganizationsTableName, OrganizationsColumns, metricsHook),
+func NewRepository(db *sqlx.DB, metricsHook chi_observer.QueryMetricsHook) Repository {
+	return &repository{
+		repo: chi_repository.NewRepository[models.Organization](db, TableName, Columns, metricsHook),
 	}
 }
 
-func (r *organizationsRepository) WithTx(tx chi_repository.Tx) OrganizationsRepository {
-	return &organizationsRepository{
-		organizationsRepo: r.organizationsRepo.WithTx(tx),
+func (r *repository) WithTx(tx chi_repository.Tx) Repository {
+	return &repository{
+		repo: r.repo.WithTx(tx),
 	}
 }
 
@@ -69,9 +69,9 @@ func searchOrganizationsCondition(searchPhrase string, filter chi_archive.Archiv
 	}, sort
 }
 
-func (r *organizationsRepository) CreateOrganization(ctx context.Context, organization *models.Organization) error {
+func (r *repository) Create(ctx context.Context, organization *models.Organization) error {
 	now := time.Now()
-	return r.organizationsRepo.Create(ctx, map[string]any{
+	return r.repo.Create(ctx, map[string]any{
 		"id":         organization.ID,
 		"created_at": now,
 		"updated_at": now,
@@ -86,8 +86,8 @@ func (r *organizationsRepository) CreateOrganization(ctx context.Context, organi
 	})
 }
 
-func (r *organizationsRepository) UpdateOrganization(ctx context.Context, organization *models.Organization) error {
-	return r.organizationsRepo.Update(ctx, squirrel.Eq{"id": organization.ID, "deleted_at": nil}, map[string]any{
+func (r *repository) Update(ctx context.Context, organization *models.Organization) error {
+	return r.repo.Update(ctx, squirrel.Eq{"id": organization.ID, "deleted_at": nil}, map[string]any{
 		"name":       organization.Name,
 		"updated_at": time.Now(),
 		"address":    organization.Address,
@@ -100,15 +100,15 @@ func (r *organizationsRepository) UpdateOrganization(ctx context.Context, organi
 	})
 }
 
-func (r *organizationsRepository) ArchiveOrganization(ctx context.Context, organization *models.Organization) error {
-	return r.organizationsRepo.Update(ctx, squirrel.Eq{"id": organization.ID, "deleted_at": nil}, map[string]any{
+func (r *repository) Archive(ctx context.Context, organization *models.Organization) error {
+	return r.repo.Update(ctx, squirrel.Eq{"id": organization.ID, "deleted_at": nil}, map[string]any{
 		"deleted_at": time.Now(),
 		"updated_at": time.Now(),
 	})
 }
 
-func (r *organizationsRepository) RestoreOrganization(ctx context.Context, id string) error {
-	return r.organizationsRepo.Update(ctx, squirrel.And{
+func (r *repository) Restore(ctx context.Context, id string) error {
+	return r.repo.Update(ctx, squirrel.And{
 		squirrel.Eq{"id": id},
 		squirrel.NotEq{"deleted_at": nil},
 	}, map[string]any{
@@ -117,27 +117,27 @@ func (r *organizationsRepository) RestoreOrganization(ctx context.Context, id st
 	})
 }
 
-func (r *organizationsRepository) CleanupArchivedOrganizations(ctx context.Context) error {
+func (r *repository) CleanupArchived(ctx context.Context) error {
 	threshold := time.Now().Add(-chi_archive.ArchivedDataRetentionPeriod)
-	return r.organizationsRepo.Delete(ctx, squirrel.And{
+	return r.repo.Delete(ctx, squirrel.And{
 		squirrel.NotEq{"deleted_at": nil},
 		squirrel.LtOrEq{"deleted_at": threshold},
 	})
 }
 
-func (r *organizationsRepository) GetOrganizationByID(ctx context.Context, id string) (*models.Organization, error) {
-	return r.organizationsRepo.Get(ctx, squirrel.Eq{"id": id, "deleted_at": nil}, nil)
+func (r *repository) GetByID(ctx context.Context, id string) (*models.Organization, error) {
+	return r.repo.Get(ctx, squirrel.Eq{"id": id, "deleted_at": nil}, nil)
 }
 
-func (r *organizationsRepository) GetOrganizationByIDIncludeArchived(ctx context.Context, id string) (*models.Organization, error) {
-	return r.organizationsRepo.Get(ctx, squirrel.Eq{"id": id}, nil)
+func (r *repository) GetByIDIncludeArchived(ctx context.Context, id string) (*models.Organization, error) {
+	return r.repo.Get(ctx, squirrel.Eq{"id": id}, nil)
 }
 
-func (r *organizationsRepository) SearchOrganizations(ctx context.Context, searchPhrase string, filter chi_archive.ArchiveFilter, limit, offset int) (*[]models.Organization, error) {
+func (r *repository) Search(ctx context.Context, searchPhrase string, filter chi_archive.ArchiveFilter, limit, offset int) (*[]models.Organization, error) {
 	filter, err := chi_archive.NormalizeArchiveFilter(filter)
 	if err != nil {
 		return nil, err
 	}
 	condition, sort := searchOrganizationsCondition(searchPhrase, filter)
-	return r.organizationsRepo.PaginatedSelect(ctx, condition, nil, sort, uint64(limit), uint64(offset))
+	return r.repo.PaginatedSelect(ctx, condition, nil, sort, uint64(limit), uint64(offset))
 }

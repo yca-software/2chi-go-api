@@ -23,7 +23,7 @@ type Dependencies struct {
 }
 
 type Service interface {
-	Submit(ctx context.Context, req *SubmitSupportRequest, access *chi_types.AccessInfo) error
+	Submit(ctx context.Context, req *SubmitRequest, access *chi_types.AccessInfo) error
 }
 
 type service struct {
@@ -44,7 +44,7 @@ func New(deps Dependencies) Service {
 	}
 }
 
-func (s *service) Submit(ctx context.Context, req *SubmitSupportRequest, access *chi_types.AccessInfo) error {
+func (s *service) Submit(ctx context.Context, req *SubmitRequest, access *chi_types.AccessInfo) error {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
 	}

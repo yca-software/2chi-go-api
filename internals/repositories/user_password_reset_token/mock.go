@@ -8,19 +8,19 @@ import (
 	chi_repository "github.com/yca-software/2chi-go-repository"
 )
 
-type MockUserPasswordResetTokenRepository struct {
+type MockRepository struct {
 	mock.Mock
 }
 
-func (m *MockUserPasswordResetTokenRepository) WithTx(_ chi_repository.Tx) UserPasswordResetTokenRepository {
+func (m *MockRepository) WithTx(_ chi_repository.Tx) Repository {
 	return m
 }
 
-func (m *MockUserPasswordResetTokenRepository) CreatePasswordResetToken(ctx context.Context, token *models.UserPasswordResetToken) error {
+func (m *MockRepository) Create(ctx context.Context, token *models.UserPasswordResetToken) error {
 	return m.Called(ctx, token).Error(0)
 }
 
-func (m *MockUserPasswordResetTokenRepository) GetPasswordResetTokenByHash(ctx context.Context, hash string) (*models.UserPasswordResetToken, error) {
+func (m *MockRepository) GetByHash(ctx context.Context, hash string) (*models.UserPasswordResetToken, error) {
 	args := m.Called(ctx, hash)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -28,10 +28,10 @@ func (m *MockUserPasswordResetTokenRepository) GetPasswordResetTokenByHash(ctx c
 	return args.Get(0).(*models.UserPasswordResetToken), args.Error(1)
 }
 
-func (m *MockUserPasswordResetTokenRepository) MarkPasswordResetTokenAsUsed(ctx context.Context, tokenID string) error {
+func (m *MockRepository) MarkAsUsed(ctx context.Context, tokenID string) error {
 	return m.Called(ctx, tokenID).Error(0)
 }
 
-func (m *MockUserPasswordResetTokenRepository) CleanupStaleUnusedPasswordResetTokens(ctx context.Context) error {
+func (m *MockRepository) CleanupStaleUnused(ctx context.Context) error {
 	return m.Called(ctx).Error(0)
 }

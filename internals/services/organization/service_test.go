@@ -34,20 +34,20 @@ import (
 
 type OrganizationServiceSuite struct {
 	suite.Suite
-	ctx              context.Context
-	now              time.Time
-	userID           uuid.UUID
-	orgRepo        *organization_repository.MockOrganizationsRepository
-	orgMembersRepo *organization_member_repository.MockOrganizationMembersRepository
-	billingAccounts  *billing_account_repository.MockOrganizationBillingAccountsRepository
-	rolesRepo        *role_repository.MockRolesRepository
-	usersRepo        *user_repository.MockUsersRepository
-	locationSvc      *location_service.MockService
-	auditSvc         *audit_service.MockService
-	invitationsSvc   *invitation_service.MockService
-	billingSvc       *billing_service.MockService
-	sessionCache     *authz.SessionCache
-	svc              organization_service.Service
+	ctx             context.Context
+	now             time.Time
+	userID          uuid.UUID
+	orgRepo         *organization_repository.MockRepository
+	orgMembersRepo  *organization_member_repository.MockRepository
+	billingAccounts *billing_account_repository.MockRepository
+	rolesRepo       *role_repository.MockRepository
+	usersRepo       *user_repository.MockRepository
+	locationSvc     *location_service.MockService
+	auditSvc        *audit_service.MockService
+	invitationsSvc  *invitation_service.MockService
+	billingSvc      *billing_service.MockService
+	sessionCache    *authz.SessionCache
+	svc             organization_service.Service
 }
 
 func TestOrganizationServiceSuite(t *testing.T) {
@@ -59,11 +59,11 @@ func (s *OrganizationServiceSuite) SetupTest() {
 	s.now = time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	s.userID = uuid.MustParse("018f1234-5678-7abc-8def-012345678901")
 
-	s.orgRepo = &organization_repository.MockOrganizationsRepository{}
-	s.orgMembersRepo = &organization_member_repository.MockOrganizationMembersRepository{}
-	s.billingAccounts = &billing_account_repository.MockOrganizationBillingAccountsRepository{}
-	s.rolesRepo = &role_repository.MockRolesRepository{}
-	s.usersRepo = &user_repository.MockUsersRepository{}
+	s.orgRepo = &organization_repository.MockRepository{}
+	s.orgMembersRepo = &organization_member_repository.MockRepository{}
+	s.billingAccounts = &billing_account_repository.MockRepository{}
+	s.rolesRepo = &role_repository.MockRepository{}
+	s.usersRepo = &user_repository.MockRepository{}
 	s.locationSvc = &location_service.MockService{}
 	s.auditSvc = &audit_service.MockService{}
 	s.billingSvc = &billing_service.MockService{}
@@ -133,7 +133,6 @@ func (s *OrganizationServiceSuite) organization(orgID uuid.UUID, name string) *m
 func (s *OrganizationServiceSuite) basicBillingAccount(orgID uuid.UUID) *models.OrganizationBillingAccount {
 	expiresAt := s.now.Add(24 * time.Hour)
 	return &models.OrganizationBillingAccount{
-		ModelBase:                   chi_types.ModelBase{ID: orgID},
 		OrganizationID:              orgID,
 		Provider:                    constants.BILLING_PROVIDER_PADDLE,
 		ProviderCustomerID:          "ctm_1",
@@ -146,7 +145,6 @@ func (s *OrganizationServiceSuite) basicBillingAccount(orgID uuid.UUID) *models.
 
 func (s *OrganizationServiceSuite) organizationMember(memberID, orgID, userID, roleID uuid.UUID) *models.OrganizationMember {
 	return &models.OrganizationMember{
-		ModelBase:      chi_types.ModelBase{ID: memberID},
 		OrganizationID: orgID,
 		UserID:         userID,
 		RoleID:         roleID,
@@ -155,14 +153,13 @@ func (s *OrganizationServiceSuite) organizationMember(memberID, orgID, userID, r
 
 func (s *OrganizationServiceSuite) role(roleID, orgID uuid.UUID) *models.Role {
 	return &models.Role{
-		ModelBase:      chi_types.ModelBase{ID: roleID},
 		OrganizationID: orgID,
 		Name:           "Member",
 	}
 }
 
 func (s *OrganizationServiceSuite) expectBasicBillingAccount(orgID uuid.UUID) *mock.Call {
-	return s.billingAccounts.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, orgID.String()).
+	return s.billingAccounts.On("GetByOrganizationID", s.ctx, orgID.String()).
 		Return(s.basicBillingAccount(orgID), nil)
 }
 
@@ -210,11 +207,11 @@ func (s *OrganizationServiceSuite) TestCreateOrganization_Success() {
 
 	s.billingSvc.On("CreateCustomer", s.ctx, mock.AnythingOfType("*billing_service.CreateCustomerInput")).Return("ctm_123", nil).Once()
 	s.setupCreateOrgTxMocks()
-	s.orgRepo.On("CreateOrganization", s.ctx, mock.AnythingOfType("*models.Organization")).Return(nil).Once()
-	s.billingAccounts.On("CreateOrganizationBillingAccount", s.ctx, mock.AnythingOfType("*models.OrganizationBillingAccount")).Return(nil).Once()
-	s.rolesRepo.On("CreateRoles", s.ctx, mock.AnythingOfType("*[]models.Role")).Return(nil).Once()
-	s.orgMembersRepo.On("CreateOrganizationMember", s.ctx, mock.AnythingOfType("*models.OrganizationMember")).Return(nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).
+	s.orgRepo.On("Create", s.ctx, mock.AnythingOfType("*models.Organization")).Return(nil).Once()
+	s.billingAccounts.On("Create", s.ctx, mock.AnythingOfType("*models.OrganizationBillingAccount")).Return(nil).Once()
+	s.rolesRepo.On("CreateMany", s.ctx, mock.AnythingOfType("*[]models.Role")).Return(nil).Once()
+	s.orgMembersRepo.On("Create", s.ctx, mock.AnythingOfType("*models.OrganizationMember")).Return(nil).Once()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).
 		Return(&models.AuditLog{}, nil).Maybe()
 
 	resp, err := s.svc.CreateOrganization(s.ctx, &organization_service.CreateOrganizationRequest{
@@ -239,7 +236,7 @@ func (s *OrganizationServiceSuite) TestCreateOrganization_DBFailure() {
 	}, nil).Once()
 	s.billingSvc.On("CreateCustomer", s.ctx, mock.AnythingOfType("*billing_service.CreateCustomerInput")).Return("ctm_123", nil).Once()
 	s.setupCreateOrgTxMocks()
-	s.orgRepo.On("CreateOrganization", s.ctx, mock.AnythingOfType("*models.Organization")).Return(dbErr).Once()
+	s.orgRepo.On("Create", s.ctx, mock.AnythingOfType("*models.Organization")).Return(dbErr).Once()
 	s.billingSvc.On("ReleaseProvisionedCustomer", s.ctx, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	resp, err := s.svc.CreateOrganization(s.ctx, &organization_service.CreateOrganizationRequest{
@@ -258,10 +255,10 @@ func (s *OrganizationServiceSuite) TestUpdateOrganization_DBFailure() {
 	existing.PlaceID = "place_old"
 
 	s.billingSvc.On("UpdateCustomer", s.ctx, mock.AnythingOfType("*billing_service.UpdateCustomerInput")).Return(nil).Twice()
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).Return(existing, nil).Once()
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).Return(existing, nil).Once()
 	s.expectBasicBillingAccount(orgID).Once()
 	s.orgRepo.On("WithTx", mock.Anything).Return(s.orgRepo)
-	s.orgRepo.On("UpdateOrganization", s.ctx, mock.AnythingOfType("*models.Organization")).
+	s.orgRepo.On("Update", s.ctx, mock.AnythingOfType("*models.Organization")).
 		Return(errors.New("update failed")).Once()
 
 	access := s.orgAccess(orgID, constants.PERMISSION_ORG_WRITE)
@@ -275,7 +272,7 @@ func (s *OrganizationServiceSuite) TestUpdateOrganization_DBFailure() {
 
 func (s *OrganizationServiceSuite) TestGetOrganization_ForbiddenWithoutPermission() {
 	orgID := uuid.New()
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).
 		Return(s.organization(orgID, "Acme"), nil).Once()
 
 	_, err := s.svc.GetOrganization(s.ctx, &organization_service.GetOrganizationRequest{
@@ -285,14 +282,14 @@ func (s *OrganizationServiceSuite) TestGetOrganization_ForbiddenWithoutPermissio
 }
 
 func (s *OrganizationServiceSuite) TestCleanupArchivedOrganizations_DelegatesToRepo() {
-	s.orgRepo.On("CleanupArchivedOrganizations", s.ctx).Return(nil).Once()
+	s.orgRepo.On("CleanupArchived", s.ctx).Return(nil).Once()
 	s.NoError(s.svc.CleanupArchivedOrganizations(s.ctx))
 }
 
 func (s *OrganizationServiceSuite) TestGetOrganization_Success() {
 	orgID := uuid.New()
 	org := s.organization(orgID, "Acme")
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).Return(org, nil).Once()
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).Return(org, nil).Once()
 
 	result, err := s.svc.GetOrganization(s.ctx, &organization_service.GetOrganizationRequest{
 		OrganizationID: orgID.String(),
@@ -306,12 +303,12 @@ func (s *OrganizationServiceSuite) TestUpdateOrganization_Success() {
 	existing := s.organization(orgID, "Old")
 	existing.PlaceID = "place_old"
 
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).Return(existing, nil).Once()
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).Return(existing, nil).Once()
 	s.expectBasicBillingAccount(orgID).Once()
 	s.billingSvc.On("UpdateCustomer", s.ctx, mock.AnythingOfType("*billing_service.UpdateCustomerInput")).Return(nil).Once()
 	s.orgRepo.On("WithTx", mock.Anything).Return(s.orgRepo)
-	s.orgRepo.On("UpdateOrganization", s.ctx, mock.AnythingOfType("*models.Organization")).Return(nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.orgRepo.On("Update", s.ctx, mock.AnythingOfType("*models.Organization")).Return(nil).Once()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
 	result, err := s.svc.UpdateOrganization(s.ctx, &organization_service.UpdateOrganizationRequest{
 		OrganizationID: orgID.String(),
@@ -338,13 +335,13 @@ func (s *OrganizationServiceSuite) TestUpdateOrganizationSubscription_Success() 
 	expires := s.now.Add(30 * 24 * time.Hour)
 	existingAccount := s.basicBillingAccount(orgID)
 
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).
 		Return(s.organization(orgID, "Acme"), nil).Once()
 	s.orgMembersRepo.On("ListByOrganizationID", s.ctx, orgID.String()).
 		Return(&[]models.OrganizationMemberWithUser{}, nil).Once()
-	s.billingAccounts.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, orgID.String()).Return(existingAccount, nil).Once()
+	s.billingAccounts.On("GetByOrganizationID", s.ctx, orgID.String()).Return(existingAccount, nil).Once()
 	s.billingAccounts.On("WithTx", mock.Anything).Return(s.billingAccounts)
-	s.billingAccounts.On("UpdateOrganizationBillingAccount", s.ctx, mock.AnythingOfType("*models.OrganizationBillingAccount")).Return(nil).Once()
+	s.billingAccounts.On("Update", s.ctx, mock.AnythingOfType("*models.OrganizationBillingAccount")).Return(nil).Once()
 
 	result, err := s.svc.UpdateOrganizationSubscription(s.ctx, &organization_service.UpdateOrganizationSubscriptionRequest{
 		OrganizationID:        orgID.String(),
@@ -360,7 +357,7 @@ func (s *OrganizationServiceSuite) TestUpdateOrganizationSubscription_Success() 
 func (s *OrganizationServiceSuite) TestUpdateOrganizationSubscription_RejectsSeatReductionBelowMemberCount() {
 	orgID := uuid.New()
 	members := make([]models.OrganizationMemberWithUser, 6)
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).
 		Return(s.organization(orgID, "Acme"), nil).Once()
 	s.orgMembersRepo.On("ListByOrganizationID", s.ctx, orgID.String()).Return(&members, nil).Once()
 
@@ -380,11 +377,11 @@ func (s *OrganizationServiceSuite) TestUpdateOrganizationSubscription_RejectsSea
 func (s *OrganizationServiceSuite) TestArchiveOrganization_Success() {
 	orgID := uuid.New()
 	org := s.organization(orgID, "Acme")
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).Return(org, nil).Once()
-	s.orgRepo.On("ArchiveOrganization", s.ctx, org).Return(nil).Once()
-	s.billingAccounts.On("GetOrganizationBillingAccountByOrganizationID", s.ctx, orgID.String()).
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).Return(org, nil).Once()
+	s.orgRepo.On("Archive", s.ctx, org).Return(nil).Once()
+	s.billingAccounts.On("GetByOrganizationID", s.ctx, orgID.String()).
 		Return(s.basicBillingAccount(orgID), nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
 	err := s.svc.ArchiveOrganization(s.ctx, &organization_service.ArchiveOrganizationRequest{
 		OrganizationID: orgID.String(),
@@ -394,9 +391,8 @@ func (s *OrganizationServiceSuite) TestArchiveOrganization_Success() {
 
 func (s *OrganizationServiceSuite) TestRestoreOrganization_NotArchived() {
 	orgID := uuid.New()
-	s.orgRepo.On("GetOrganizationByIDIncludeArchived", s.ctx, orgID.String()).Return(&models.Organization{
+	s.orgRepo.On("GetByIDIncludeArchived", s.ctx, orgID.String()).Return(&models.Organization{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
-			ModelBase: chi_types.ModelBase{ID: orgID},
 			DeletedAt: nil,
 		},
 	}, nil).Once()
@@ -411,10 +407,10 @@ func (s *OrganizationServiceSuite) TestDeleteOrganizationMember_CannotDeleteSelf
 	orgID := uuid.New()
 	memberID := uuid.New()
 	roleID := uuid.New()
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).
 		Return(s.organization(orgID, "Acme"), nil).Once()
 	s.expectBasicBillingAccount(orgID).Once()
-	s.orgMembersRepo.On("GetOrganizationMemberByMembershipID", s.ctx, orgID.String(), memberID.String()).
+	s.orgMembersRepo.On("GetByMemberID", s.ctx, orgID.String(), memberID.String()).
 		Return(s.organizationMember(memberID, orgID, s.userID, roleID), nil).Once()
 
 	access := s.orgAccess(orgID, constants.PERMISSION_MEMBERS_DELETE)
@@ -434,7 +430,7 @@ func (s *OrganizationServiceSuite) TestGetArchivedOrganization_RequiresAdmin() {
 
 func (s *OrganizationServiceSuite) TestListOrganizations_Success() {
 	orgs := []models.Organization{{ModelBaseWithArchive: chi_types.ModelBaseWithArchive{ModelBase: chi_types.ModelBase{ID: uuid.New()}}, Name: "Acme"}}
-	s.orgRepo.On("SearchOrganizations", s.ctx, "", chi_archive.ArchiveFilterActive, 21, 1).Return(&orgs, nil).Once()
+	s.orgRepo.On("Search", s.ctx, "", chi_archive.ArchiveFilterActive, 21, 1).Return(&orgs, nil).Once()
 
 	resp, err := s.svc.ListOrganizations(s.ctx, &organization_service.ListOrganizationsRequest{
 		ArchiveFilter: chi_archive.ArchiveFilterActive,
@@ -447,7 +443,7 @@ func (s *OrganizationServiceSuite) TestListOrganizations_Success() {
 
 func (s *OrganizationServiceSuite) TestListOrganizations_AcceptsZeroOffset() {
 	orgs := []models.Organization{{ModelBaseWithArchive: chi_types.ModelBaseWithArchive{ModelBase: chi_types.ModelBase{ID: uuid.New()}}, Name: "Acme"}}
-	s.orgRepo.On("SearchOrganizations", s.ctx, "", chi_archive.ArchiveFilterActive, 21, 0).Return(&orgs, nil).Once()
+	s.orgRepo.On("Search", s.ctx, "", chi_archive.ArchiveFilterActive, 21, 0).Return(&orgs, nil).Once()
 
 	resp, err := s.svc.ListOrganizations(s.ctx, &organization_service.ListOrganizationsRequest{
 		ArchiveFilter: chi_archive.ArchiveFilterActive,
@@ -461,7 +457,7 @@ func (s *OrganizationServiceSuite) TestListOrganizations_AcceptsZeroOffset() {
 func (s *OrganizationServiceSuite) TestListOrganizationMembers_Success() {
 	orgID := uuid.New()
 	members := []models.OrganizationMemberWithUser{{OrganizationMember: *s.organizationMember(uuid.New(), orgID, uuid.New(), uuid.New())}}
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).
 		Return(s.organization(orgID, "Acme"), nil).Once()
 	s.orgMembersRepo.On("ListByOrganizationID", s.ctx, orgID.String()).Return(&members, nil).Once()
 
@@ -475,7 +471,7 @@ func (s *OrganizationServiceSuite) TestListOrganizationMembers_Success() {
 func (s *OrganizationServiceSuite) TestListOrganizationRolesForUser_Success() {
 	targetID := uuid.New()
 	roles := []models.OrganizationMemberWithOrganizationAndRole{}
-	s.orgMembersRepo.On("ListByUserIDWithRole", s.ctx, targetID.String()).Return(&roles, nil).Once()
+	s.orgMembersRepo.On("ListByUserID", s.ctx, targetID.String()).Return(&roles, nil).Once()
 
 	result, err := s.svc.ListOrganizationRolesForUser(s.ctx, &organization_service.ListOrganizationRolesForUserRequest{
 		UserID: targetID.String(),
@@ -495,10 +491,10 @@ func (s *OrganizationServiceSuite) TestAdminCreateOrganization_RequiresAdmin() {
 func (s *OrganizationServiceSuite) TestUpdateOrganizationMember_CannotUpdateSelf() {
 	orgID := uuid.New()
 	memberID := uuid.New()
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).
 		Return(s.organization(orgID, "Acme"), nil).Once()
 	s.expectBasicBillingAccount(orgID).Once()
-	s.orgMembersRepo.On("GetOrganizationMemberByMembershipID", s.ctx, orgID.String(), memberID.String()).
+	s.orgMembersRepo.On("GetByMemberID", s.ctx, orgID.String(), memberID.String()).
 		Return(s.organizationMember(memberID, orgID, s.userID, uuid.Nil), nil).Once()
 
 	access := s.orgAccess(orgID, constants.PERMISSION_MEMBERS_WRITE)
@@ -513,17 +509,16 @@ func (s *OrganizationServiceSuite) TestUpdateOrganizationMember_CannotUpdateSelf
 func (s *OrganizationServiceSuite) TestRestoreOrganization_Success() {
 	orgID := uuid.New()
 	deleted := s.now.Add(-time.Hour)
-	s.orgRepo.On("GetOrganizationByIDIncludeArchived", s.ctx, orgID.String()).Return(&models.Organization{
+	s.orgRepo.On("GetByIDIncludeArchived", s.ctx, orgID.String()).Return(&models.Organization{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
-			ModelBase: chi_types.ModelBase{ID: orgID},
 			DeletedAt: &deleted,
 		},
 	}, nil).Once()
-	s.orgRepo.On("RestoreOrganization", s.ctx, orgID.String()).Return(nil).Once()
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).Return(&models.Organization{
+	s.orgRepo.On("Restore", s.ctx, orgID.String()).Return(nil).Once()
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).Return(&models.Organization{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{ModelBase: chi_types.ModelBase{ID: orgID}},
 	}, nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
 	result, err := s.svc.RestoreOrganization(s.ctx, &organization_service.RestoreOrganizationRequest{
 		OrganizationID: orgID.String(),
@@ -534,7 +529,7 @@ func (s *OrganizationServiceSuite) TestRestoreOrganization_Success() {
 
 func (s *OrganizationServiceSuite) TestGetArchivedOrganization_Success() {
 	orgID := uuid.New()
-	s.orgRepo.On("GetOrganizationByIDIncludeArchived", s.ctx, orgID.String()).
+	s.orgRepo.On("GetByIDIncludeArchived", s.ctx, orgID.String()).
 		Return(&models.Organization{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{ModelBase: chi_types.ModelBase{ID: orgID}},
 		}, nil).Once()
@@ -553,22 +548,22 @@ func (s *OrganizationServiceSuite) TestUpdateOrganizationMember_Success() {
 	oldRoleID := uuid.New()
 	newRoleID := uuid.New()
 
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).
 		Return(s.organization(orgID, "Acme"), nil).Once()
 	s.expectBasicBillingAccount(orgID).Once()
-	s.orgMembersRepo.On("GetOrganizationMemberByMembershipID", s.ctx, orgID.String(), memberID.String()).
+	s.orgMembersRepo.On("GetByMemberID", s.ctx, orgID.String(), memberID.String()).
 		Return(s.organizationMember(memberID, orgID, memberUserID, oldRoleID), nil).Once()
 	oldRole := s.role(oldRoleID, orgID)
 	oldRole.Name = "Member"
-	s.rolesRepo.On("GetRoleByID", s.ctx, orgID.String(), oldRoleID.String()).Return(oldRole, nil).Once()
+	s.rolesRepo.On("GetByID", s.ctx, orgID.String(), oldRoleID.String()).Return(oldRole, nil).Once()
 	newRole := s.role(newRoleID, orgID)
 	newRole.Name = "Admin"
-	s.rolesRepo.On("GetRoleByID", s.ctx, orgID.String(), newRoleID.String()).Return(newRole, nil).Once()
-	s.orgMembersRepo.On("UpdateOrganizationMember", s.ctx, mock.AnythingOfType("*models.OrganizationMember")).Return(nil).Once()
+	s.rolesRepo.On("GetByID", s.ctx, orgID.String(), newRoleID.String()).Return(newRole, nil).Once()
+	s.orgMembersRepo.On("Update", s.ctx, mock.AnythingOfType("*models.OrganizationMember")).Return(nil).Once()
 	updatedMember := s.organizationMember(memberID, orgID, memberUserID, newRoleID)
-	s.orgMembersRepo.On("GetOrganizationMemberByMembershipIDWithUser", s.ctx, orgID.String(), memberID.String()).
+	s.orgMembersRepo.On("GetByMemberIDWithUser", s.ctx, orgID.String(), memberID.String()).
 		Return(&models.OrganizationMemberWithUser{OrganizationMember: *updatedMember}, nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
 	result, err := s.svc.UpdateOrganizationMember(s.ctx, &organization_service.UpdateOrganizationMemberRequest{
 		OrganizationID: orgID.String(),
@@ -585,24 +580,24 @@ func (s *OrganizationServiceSuite) TestDeleteOrganizationMember_Success() {
 	memberUserID := uuid.New()
 	roleID := uuid.New()
 
-	s.orgRepo.On("GetOrganizationByID", s.ctx, orgID.String()).
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).
 		Return(s.organization(orgID, "Acme"), nil).Once()
 	s.expectBasicBillingAccount(orgID).Once()
-	s.orgMembersRepo.On("GetOrganizationMemberByMembershipID", s.ctx, orgID.String(), memberID.String()).
+	s.orgMembersRepo.On("GetByMemberID", s.ctx, orgID.String(), memberID.String()).
 		Return(s.organizationMember(memberID, orgID, memberUserID, roleID), nil).Once()
 	deleteRole := s.role(roleID, orgID)
 	deleteRole.Name = "Member"
 	deleteRole.Permissions = organization_service.DefaultTeamMemberPermissions
-	s.rolesRepo.On("GetRoleByID", s.ctx, orgID.String(), roleID.String()).Return(deleteRole, nil).Once()
-	s.usersRepo.On("GetUserByID", s.ctx, memberUserID.String()).
+	s.rolesRepo.On("GetByID", s.ctx, orgID.String(), roleID.String()).Return(deleteRole, nil).Once()
+	s.usersRepo.On("GetByID", s.ctx, memberUserID.String()).
 		Return(&models.User{
 			ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 				ModelBase: chi_types.ModelBase{ID: memberUserID},
 			},
 			Email: "member@example.com",
 		}, nil).Once()
-	s.orgMembersRepo.On("DeleteOrganizationMemberByMembershipID", s.ctx, orgID.String(), memberID.String()).Return(nil).Once()
-	s.auditSvc.On("CreateAuditLog", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
+	s.orgMembersRepo.On("DeleteByMemberID", s.ctx, orgID.String(), memberID.String()).Return(nil).Once()
+	s.auditSvc.On("Create", s.ctx, mock.Anything, mock.Anything).Return(&models.AuditLog{}, nil).Maybe()
 
 	err := s.svc.DeleteOrganizationMember(s.ctx, &organization_service.DeleteOrganizationMemberRequest{
 		OrganizationID: orgID.String(),
