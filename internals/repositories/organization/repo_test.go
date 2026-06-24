@@ -140,6 +140,13 @@ func (s *RepositorySuite) TestSearch() {
 	s.Equal(seedSearchActiveOrgID, (*activeRows)[0].ID.String())
 }
 
+func (s *RepositorySuite) TestGetByIDIncludeArchived() {
+	got, err := s.repo.GetByIDIncludeArchived(s.ctx, seedArchivedOrgID)
+	s.Require().NoError(err)
+	s.Equal("Archived Org", got.Name)
+	s.NotNil(got.DeletedAt)
+}
+
 func (s *RepositorySuite) TestWithTx() {
 	org := &models.Organization{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{

@@ -23,6 +23,7 @@ import (
 )
 
 const testOrgID = "33333333-3333-4333-8333-333333333303"
+const testMemberID = "88888888-8888-4888-8888-888888888801"
 
 type OrganizationsHandlerSuite struct {
 	suite.Suite
@@ -86,6 +87,21 @@ func (s *OrganizationsHandlerSuite) postJSON(path, body string) *httptest.Respon
 
 func (s *OrganizationsHandlerSuite) get(path string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, path, nil)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+	return rec
+}
+
+func (s *OrganizationsHandlerSuite) patchJSON(path, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPatch, path, strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+	return rec
+}
+
+func (s *OrganizationsHandlerSuite) delete(path string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodDelete, path, nil)
 	rec := httptest.NewRecorder()
 	s.echo.ServeHTTP(rec, req)
 	return rec
@@ -165,4 +181,100 @@ func (s *OrganizationsHandlerSuite) TestHandlerWithInvitationService() {
 		&chi_logger.MockLogger{},
 	)
 	s.NotNil(h)
+}
+
+func (s *OrganizationsHandlerSuite) TestGetOrganizationBillingAccount_Success() {
+	s.orgService.On("GetOrganizationBillingAccount", mock.Anything, mock.MatchedBy(func(req *organization_service.GetOrganizationBillingAccountRequest) bool {
+		return req.OrganizationID == testOrgID && !req.IncludeArchived
+	}), s.userAccess).Return(&models.OrganizationBillingAccount{}, nil).Once()
+
+	s.echo.GET("/api/v1/organization/:orgId/billing", s.handler.GetOrganizationBillingAccount, s.withAccess)
+	rec := s.get("/api/v1/organization/" + testOrgID + "/billing")
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.orgService.AssertExpectations(s.T())
+}
+
+func (s *OrganizationsHandlerSuite) TestUpdateOrganization_Success() {
+	s.orgService.On("UpdateOrganization", mock.Anything, mock.MatchedBy(func(req *organization_service.UpdateOrganizationRequest) bool {
+		return req.OrganizationID == testOrgID && req.Name == "Renamed"
+	}), s.userAccess).Return(&models.Organization{Name: "Renamed"}, nil).Once()
+
+	s.echo.PATCH("/api/v1/organization/:orgId", s.handler.UpdateOrganization, s.withAccess)
+	rec := s.patchJSON("/api/v1/organization/"+testOrgID, `{"name":"Renamed","placeId":"place_1"}`)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.orgService.AssertExpectations(s.T())
+}
+
+func (s *OrganizationsHandlerSuite) TestArchiveOrganization_Success() {
+	s.orgService.On("ArchiveOrganization", mock.Anything, mock.MatchedBy(func(req *organization_service.ArchiveOrganizationRequest) bool {
+		return req.OrganizationID == testOrgID
+	}), s.userAccess).Return(nil).Once()
+
+	s.echo.POST("/api/v1/organization/:orgId/archive", s.handler.ArchiveOrganization, s.withAccess)
+	rec := s.postJSON("/api/v1/organization/"+testOrgID+"/archive", `{}`)
+
+	s.Equal(http.StatusNoContent, rec.Code)
+	s.orgService.AssertExpectations(s.T())
+}
+
+func (s *OrganizationsHandlerSuite) TestUpdateOrganizationMemberRole_Success() {
+	s.orgService.On("UpdateOrganizationMember", mock.Anything, mock.MatchedBy(func(req *organization_service.UpdateOrganizationMemberRequest) bool {
+		return req.OrganizationID == testOrgID && req.MemberID == testMemberID
+	}), s.userAccess).Return(&models.OrganizationMemberWithUser{}, nil).Once()
+
+	s.echo.PATCH("/api/v1/organization/:orgId/member/:memberId/role", s.handler.UpdateOrganizationMemberRole, s.withAccess)
+	rec := s.patchJSON("/api/v1/organization/"+testOrgID+"/member/"+testMemberID+"/role", `{"roleId":"55555555-5555-4555-8555-555555555501"}`)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.orgService.AssertExpectations(s.T())
+}
+
+func (s *OrganizationsHandlerSuite) TestRemoveOrganizationMember_Success() {
+	s.orgService.On("DeleteOrganizationMember", mock.Anything, mock.MatchedBy(func(req *organization_service.DeleteOrganizationMemberRequest) bool {
+		return req.OrganizationID == testOrgID && req.MemberID == testMemberID
+	}), s.userAccess).Return(nil).Once()
+
+	s.echo.DELETE("/api/v1/organization/:orgId/member/:memberId", s.handler.RemoveOrganizationMember, s.withAccess)
+	rec := s.delete("/api/v1/organization/" + testOrgID + "/member/" + testMemberID)
+
+	s.Equal(http.StatusNoContent, rec.Code)
+	s.orgService.AssertExpectations(s.T())
+}
+
+func (s *OrganizationsHandlerSuite) TestChangePlan_Success() {
+	s.billingSvc.On("ChangePlan", mock.Anything, mock.MatchedBy(func(req *billing_service.ChangePlanRequest) bool {
+		return req.OrganizationID == testOrgID
+	}), s.userAccess).Return(&billing_service.ChangePlanResponse{}, nil).Once()
+
+	s.echo.POST("/api/v1/organization/:orgId/subscription/change-plan", s.handler.ChangePlan, s.withAccess)
+	rec := s.postJSON("/api/v1/organization/"+testOrgID+"/subscription/change-plan", `{"planId":"basic_monthly"}`)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.billingSvc.AssertExpectations(s.T())
+}
+
+func (s *OrganizationsHandlerSuite) TestCreateCustomerPortalSession_Success() {
+	s.billingSvc.On("CreateCustomerPortalSession", mock.Anything, mock.MatchedBy(func(req *billing_service.CreateCustomerPortalSessionRequest) bool {
+		return req.OrganizationID == testOrgID
+	}), s.userAccess).Return(&billing_service.CustomerPortalSessionResponse{PortalURL: "https://portal.example.com"}, nil).Once()
+
+	s.echo.POST("/api/v1/organization/:orgId/subscription/portal", s.handler.CreateCustomerPortalSession, s.withAccess)
+	rec := s.postJSON("/api/v1/organization/"+testOrgID+"/subscription/portal", `{}`)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.billingSvc.AssertExpectations(s.T())
+}
+
+func (s *OrganizationsHandlerSuite) TestProcessTransaction_Success() {
+	s.billingSvc.On("ProcessTransaction", mock.Anything, mock.MatchedBy(func(req *billing_service.ProcessTransactionRequest) bool {
+		return req.OrganizationID == testOrgID
+	}), s.userAccess).Return(&models.OrganizationBillingAccount{}, nil).Once()
+
+	s.echo.POST("/api/v1/organization/:orgId/subscription/process-transaction", s.handler.ProcessTransaction, s.withAccess)
+	rec := s.postJSON("/api/v1/organization/"+testOrgID+"/subscription/process-transaction", `{"transactionId":"txn_123","priceId":"price_123"}`)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.billingSvc.AssertExpectations(s.T())
 }

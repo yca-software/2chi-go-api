@@ -107,3 +107,19 @@ func (s *RolesHandlerSuite) TestDeleteRole_Success() {
 	s.Equal(http.StatusNoContent, rec.Code)
 	s.roleService.AssertExpectations(s.T())
 }
+
+func (s *RolesHandlerSuite) TestUpdateRole_Success() {
+	s.roleService.On("Update", mock.Anything, mock.MatchedBy(func(req *role_service.UpdateRequest) bool {
+		return req.OrganizationID == testOrgID && req.RoleID == testRoleID && req.Name == "Editor"
+	}), s.userAccess).Return(&models.Role{Name: "Editor"}, nil).Once()
+
+	s.echo.PATCH("/api/v1/organization/:orgId/role/:roleId", s.handler.UpdateRole, s.withAccess)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/organization/"+testOrgID+"/role/"+testRoleID, strings.NewReader(`{"name":"Editor","permissions":["read"]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.roleService.AssertExpectations(s.T())
+}

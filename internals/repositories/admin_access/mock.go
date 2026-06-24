@@ -23,7 +23,3 @@ func (m *MockRepository) GetByUserID(ctx context.Context, userID string) (*model
 	}
 	return args.Get(0).(*models.AdminAccess), args.Error(1)
 }
-
-func (m *MockRepository) DeleteByUserID(ctx context.Context, userID string) error {
-	return m.Called(ctx, userID).Error(0)
-}

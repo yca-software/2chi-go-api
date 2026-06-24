@@ -60,7 +60,6 @@ type Service interface {
 
 	RevokeUserRefreshToken(ctx context.Context, req *RevokeUserRefreshTokenRequest, access *chi_types.AccessInfo) error
 	RevokeUserAllRefreshTokens(ctx context.Context, req *RevokeUserAllRefreshTokensRequest, access *chi_types.AccessInfo) error
-	RevokeUserAdminAccess(ctx context.Context, req *RevokeUserAdminAccessRequest, access *chi_types.AccessInfo) error
 
 	GetUser(ctx context.Context, req *GetUserRequest, access *chi_types.AccessInfo) (*GetUserResponse, error)
 	ListUsers(ctx context.Context, req *ListUsersRequest, access *chi_types.AccessInfo) (*ListUsersResponse, error)
@@ -277,30 +276,6 @@ func (s *service) RevokeUserRefreshToken(ctx context.Context, req *RevokeUserRef
 	}
 
 	if err := s.userRefreshTokensRepo.RevokeByID(ctx, req.UserID, req.RefreshTokenID); err != nil {
-		return err
-	}
-
-	return s.sessionCache.InvalidateSession(ctx, req.UserID)
-}
-
-func (s *service) RevokeUserAdminAccess(ctx context.Context, req *RevokeUserAdminAccessRequest, access *chi_types.AccessInfo) error {
-	if err := s.validator.ValidateStruct(req); err != nil {
-		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
-	}
-
-	if err := s.authorizer.CheckPlatformAdmin(access); err != nil {
-		return err
-	}
-
-	if access.SubjectID.String() == req.UserID {
-		return chi_error.NewForbiddenError(errors.New("cannot revoke own admin access"), "CannotRevokeOwnAdminAccess", nil)
-	}
-
-	if _, err := s.adminAccessRepo.GetByUserID(ctx, req.UserID); err != nil {
-		return err
-	}
-
-	if err := s.adminAccessRepo.DeleteByUserID(ctx, req.UserID); err != nil {
 		return err
 	}
 

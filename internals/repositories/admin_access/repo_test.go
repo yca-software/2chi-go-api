@@ -85,13 +85,6 @@ func (s *RepositorySuite) TestGetByUserID_NotFound() {
 	s.requireNotFound(err)
 }
 
-func (s *RepositorySuite) TestDeleteByUserID() {
-	s.Require().NoError(s.repo.DeleteByUserID(s.ctx, seedAdminUserID))
-
-	_, err := s.repo.GetByUserID(s.ctx, seedAdminUserID)
-	s.requireNotFound(err)
-}
-
 func (s *RepositorySuite) TestWithTx() {
 	var gotUserID string
 	err := chi_repository.RunInTx(s.ctx, s.db, nil, func(tx chi_repository.Tx) error {

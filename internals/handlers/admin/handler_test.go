@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -12,6 +14,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/yca-software/2chi-go-api/internals/config"
 	admin_handlers "github.com/yca-software/2chi-go-api/internals/handlers/admin"
+	"github.com/yca-software/2chi-go-api/internals/models"
 	audit_service "github.com/yca-software/2chi-go-api/internals/services/audit"
 	auth_service "github.com/yca-software/2chi-go-api/internals/services/auth"
 	organization_service "github.com/yca-software/2chi-go-api/internals/services/organization"
@@ -93,6 +96,36 @@ func (s *AdminHandlerSuite) withAccess(next echo.HandlerFunc) echo.HandlerFunc {
 		c.Set("accessInfo", s.adminAccess)
 		return next(c)
 	}
+}
+
+func (s *AdminHandlerSuite) postJSON(path, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+	return rec
+}
+
+func (s *AdminHandlerSuite) patchJSON(path, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPatch, path, strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+	return rec
+}
+
+func (s *AdminHandlerSuite) delete(path string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodDelete, path, nil)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+	return rec
+}
+
+func (s *AdminHandlerSuite) get(path string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+	return rec
 }
 
 func (s *AdminHandlerSuite) TestListUsers_Success() {
@@ -184,4 +217,113 @@ func (s *AdminHandlerSuite) TestListOrganizationAuditLogs_Success() {
 
 	s.Equal(http.StatusOK, rec.Code)
 	s.auditService.AssertExpectations(s.T())
+}
+
+func (s *AdminHandlerSuite) TestDeleteUser_Success() {
+	s.usersService.On("ArchiveUser", mock.Anything, mock.MatchedBy(func(req *user_service.ArchiveUserRequest) bool {
+		return req.UserID == testTargetUserID
+	}), s.adminAccess).Return(nil).Once()
+
+	s.echo.DELETE("/api/v1/admin/user/:userId", s.handler.DeleteUser, s.withAccess)
+	rec := s.delete("/api/v1/admin/user/" + testTargetUserID)
+
+	s.Equal(http.StatusNoContent, rec.Code)
+	s.usersService.AssertExpectations(s.T())
+}
+
+func (s *AdminHandlerSuite) TestListArchivedOrganizations_Success() {
+	s.orgService.On("ListOrganizations", mock.Anything, mock.MatchedBy(func(req *organization_service.ListOrganizationsRequest) bool {
+		return req.ArchiveFilter == chi_archive.ArchiveFilterArchived
+	}), s.adminAccess).Return(&organization_service.ListOrganizationsResponse{}, nil).Once()
+
+	s.echo.GET("/api/v1/admin/organization/archived", s.handler.ListArchivedOrganizations, s.withAccess)
+	rec := s.get("/api/v1/admin/organization/archived")
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.orgService.AssertExpectations(s.T())
+}
+
+func (s *AdminHandlerSuite) TestGetOrganization_Success() {
+	s.orgService.On("GetOrganization", mock.Anything, mock.MatchedBy(func(req *organization_service.GetOrganizationRequest) bool {
+		return req.OrganizationID == testOrgID
+	}), s.adminAccess).Return(&models.Organization{}, nil).Once()
+
+	s.echo.GET("/api/v1/admin/organization/:orgId", s.handler.GetOrganization, s.withAccess)
+	rec := s.get("/api/v1/admin/organization/" + testOrgID)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.orgService.AssertExpectations(s.T())
+}
+
+func (s *AdminHandlerSuite) TestGetOrganizationBillingAccount_Success() {
+	s.orgService.On("GetOrganizationBillingAccount", mock.Anything, mock.MatchedBy(func(req *organization_service.GetOrganizationBillingAccountRequest) bool {
+		return req.OrganizationID == testOrgID && req.IncludeArchived
+	}), s.adminAccess).Return(&models.OrganizationBillingAccount{}, nil).Once()
+
+	s.echo.GET("/api/v1/admin/organization/:orgId/billing", s.handler.GetOrganizationBillingAccount, s.withAccess)
+	rec := s.get("/api/v1/admin/organization/" + testOrgID + "/billing")
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.orgService.AssertExpectations(s.T())
+}
+
+func (s *AdminHandlerSuite) TestGetArchivedOrganization_Success() {
+	s.orgService.On("GetArchivedOrganization", mock.Anything, mock.MatchedBy(func(req *organization_service.GetOrganizationRequest) bool {
+		return req.OrganizationID == testOrgID
+	}), s.adminAccess).Return(&models.Organization{}, nil).Once()
+
+	s.echo.GET("/api/v1/admin/organization/archived/:orgId", s.handler.GetArchivedOrganization, s.withAccess)
+	rec := s.get("/api/v1/admin/organization/archived/" + testOrgID)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.orgService.AssertExpectations(s.T())
+}
+
+func (s *AdminHandlerSuite) TestCreateOrganization_Success() {
+	s.orgService.On("AdminCreateOrganization", mock.Anything, mock.Anything, s.adminAccess).
+		Return(&models.Organization{}, nil).Once()
+
+	s.echo.POST("/api/v1/admin/organization", s.handler.CreateOrganization, s.withAccess)
+	rec := s.postJSON("/api/v1/admin/organization", `{
+		"name":"Acme",
+		"placeId":"place_1",
+		"billingEmail":"billing@example.com",
+		"ownerEmail":"owner@example.com",
+		"subscriptionType":"basic",
+		"subscriptionSeats":5,
+		"language":"en"
+	}`)
+
+	s.Equal(http.StatusCreated, rec.Code)
+	s.orgService.AssertExpectations(s.T())
+}
+
+func (s *AdminHandlerSuite) TestRestoreOrganization_Success() {
+	s.orgService.On("RestoreOrganization", mock.Anything, mock.MatchedBy(func(req *organization_service.RestoreOrganizationRequest) bool {
+		return req.OrganizationID == testOrgID
+	}), s.adminAccess).Return(&models.Organization{}, nil).Once()
+
+	s.echo.POST("/api/v1/admin/organization/archived/:orgId/restore", s.handler.RestoreOrganization, s.withAccess)
+	rec := s.postJSON("/api/v1/admin/organization/archived/"+testOrgID+"/restore", `{}`)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.orgService.AssertExpectations(s.T())
+}
+
+func (s *AdminHandlerSuite) TestUpdateOrganizationSubscription_Success() {
+	expiresAt := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	s.orgService.On("UpdateOrganizationSubscription", mock.Anything, mock.MatchedBy(func(req *organization_service.UpdateOrganizationSubscriptionRequest) bool {
+		return req.OrganizationID == testOrgID && req.SubscriptionType == "basic"
+	}), s.adminAccess).Return(&models.OrganizationBillingAccount{}, nil).Once()
+
+	s.echo.PATCH("/api/v1/admin/organization/:orgId/subscription", s.handler.UpdateOrganizationSubscription, s.withAccess)
+	rec := s.patchJSON("/api/v1/admin/organization/"+testOrgID+"/subscription", `{
+		"customSubscription":true,
+		"subscriptionType":"basic",
+		"subscriptionSeats":5,
+		"subscriptionExpiresAt":"`+expiresAt.Format(time.RFC3339)+`"
+	}`)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.orgService.AssertExpectations(s.T())
 }

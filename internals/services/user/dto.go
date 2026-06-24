@@ -80,10 +80,6 @@ type RevokeUserAllRefreshTokensRequest struct {
 	KeepRefreshToken string `json:"keepRefreshToken,omitempty"`
 }
 
-type RevokeUserAdminAccessRequest struct {
-	UserID string `json:"-" validate:"required,uuid"`
-}
-
 type ResendVerificationEmailRequest struct {
 	UserID   string `json:"-" validate:"required,uuid"`
 	Language string `json:"-" validate:"omitempty,len=2"`

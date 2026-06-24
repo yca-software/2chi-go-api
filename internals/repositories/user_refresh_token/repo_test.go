@@ -109,6 +109,12 @@ func (s *RepositorySuite) TestCreate() {
 	s.Equal(seedRefreshNewID, got.ID.String())
 }
 
+func (s *RepositorySuite) TestGetByHash() {
+	got, err := s.repo.GetByHash(s.ctx, seedRefreshHashActive)
+	s.Require().NoError(err)
+	s.Equal(seedRefreshActiveID, got.ID.String())
+}
+
 func (s *RepositorySuite) TestListActiveByUserID() {
 	rows, err := s.repo.ListActiveByUserID(s.ctx, seedTokenUserID)
 	s.Require().NoError(err)

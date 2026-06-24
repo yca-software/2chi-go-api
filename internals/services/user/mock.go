@@ -64,11 +64,6 @@ func (m *MockService) RevokeUserAllRefreshTokens(ctx context.Context, req *Revok
 	return args.Error(0)
 }
 
-func (m *MockService) RevokeUserAdminAccess(ctx context.Context, req *RevokeUserAdminAccessRequest, access *chi_types.AccessInfo) error {
-	args := m.Called(ctx, req, access)
-	return args.Error(0)
-}
-
 func (m *MockService) GetUser(ctx context.Context, req *GetUserRequest, access *chi_types.AccessInfo) (*GetUserResponse, error) {
 	args := m.Called(ctx, req, access)
 	if args.Get(0) == nil {

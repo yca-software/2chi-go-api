@@ -327,44 +327,6 @@ func (s *UserServiceSuite) TestRevokeUserRefreshToken_Success() {
 	s.False(ok)
 }
 
-func (s *UserServiceSuite) TestRevokeUserAdminAccess_InvalidatesSession() {
-	targetID := uuid.MustParse("018f1234-5678-7abc-8def-012345678902")
-	adminAccess := &models.AdminAccess{UserID: targetID, CreatedAt: s.now}
-	cachedAccess := &chi_types.AccessInfo{
-		Type:      chi_types.AccessTypeUser,
-		SubjectID: targetID,
-		Email:     "admin-target@example.com",
-		IsAdmin:   true,
-	}
-	s.Require().NoError(s.sessionCache.Set(s.ctx, cachedAccess))
-	s.adminAccessRepo.On("GetByUserID", s.ctx, targetID.String()).Return(adminAccess, nil).Once()
-	s.adminAccessRepo.On("DeleteByUserID", s.ctx, targetID.String()).Return(nil).Once()
-
-	err := s.svc.RevokeUserAdminAccess(s.ctx, &user_service.RevokeUserAdminAccessRequest{
-		UserID: targetID.String(),
-	}, s.adminAccess())
-	s.NoError(err)
-
-	_, ok := s.sessionCache.Get(s.ctx, targetID.String())
-	s.False(ok)
-}
-
-func (s *UserServiceSuite) TestRevokeUserAdminAccess_ForbidsSelfDemotion() {
-	selfAdmin := &chi_types.AccessInfo{
-		Type:      chi_types.AccessTypeUser,
-		SubjectID: s.userID,
-		IsAdmin:   true,
-		Email:     "admin@example.com",
-	}
-	err := s.svc.RevokeUserAdminAccess(s.ctx, &user_service.RevokeUserAdminAccessRequest{
-		UserID: s.userID.String(),
-	}, selfAdmin)
-	s.Error(err)
-	apiErr, ok := chi_error.AsError(err)
-	s.Require().True(ok)
-	s.Equal("CannotRevokeOwnAdminAccess", apiErr.ErrorCode)
-}
-
 func (s *UserServiceSuite) TestRevokeUserAllRefreshTokens_Success() {
 	s.refreshTokensRepo.On("RevokeAllByUserID", s.ctx, s.userID.String(), (*string)(nil)).Return(nil).Once()
 

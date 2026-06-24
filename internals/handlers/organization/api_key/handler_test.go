@@ -107,3 +107,19 @@ func (s *APIKeysHandlerSuite) TestDeleteAPIKey_Success() {
 	s.Equal(http.StatusNoContent, rec.Code)
 	s.apiKeysService.AssertExpectations(s.T())
 }
+
+func (s *APIKeysHandlerSuite) TestUpdateAPIKey_Success() {
+	s.apiKeysService.On("Update", mock.Anything, mock.MatchedBy(func(req *api_key_service.UpdateRequest) bool {
+		return req.OrganizationID == testOrgID && req.APIKeyID == testAPIKeyID && req.Name == "CI Updated"
+	}), s.userAccess).Return(&models.APIKey{Name: "CI Updated"}, nil).Once()
+
+	s.echo.PATCH("/api/v1/organization/:orgId/api-key/:apiKeyId", s.handler.UpdateAPIKey, s.withAccess)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/organization/"+testOrgID+"/api-key/"+testAPIKeyID, strings.NewReader(`{"name":"CI Updated","permissions":["read"]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.apiKeysService.AssertExpectations(s.T())
+}

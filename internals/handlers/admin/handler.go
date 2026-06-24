@@ -49,7 +49,6 @@ func (h *AdminHandler) RegisterRoutes(e *echo.Echo, authMiddleware, adminMiddlew
 	user.GET("", h.ListUsers)
 	user.GET("/:userId", h.GetUser)
 	user.DELETE("/:userId", h.DeleteUser)
-	user.DELETE("/:userId/admin-access", h.RevokeUserAdminAccess)
 	user.POST("/:userId/impersonate", h.ImpersonateUser, impersonateRateLimit)
 
 	org := admin.Group("/organization")
@@ -146,34 +145,6 @@ func (h *AdminHandler) DeleteUser(c echo.Context) error {
 		return err
 	}
 	if err := h.usersService.ArchiveUser(ctx, &user_service.ArchiveUserRequest{UserID: c.Param("userId")}, accessInfo); err != nil {
-		return err
-	}
-	return c.NoContent(http.StatusNoContent)
-}
-
-// RevokeUserAdminAccess godoc
-// @Summary      Revoke platform admin access
-// @Description  Removes platform admin access for a user and invalidates their cached session (platform admin only)
-// @Tags         admin
-// @Accept       json
-// @Produce      json
-// @Param        userId  path  string  true  "User ID"
-// @Success      204
-// @Failure      400  {object}  error.ErrorResponse
-// @Failure      401  {object}  error.ErrorResponse
-// @Failure      403  {object}  error.ErrorResponse
-// @Failure      404  {object}  error.ErrorResponse
-// @Failure      500  {object}  error.ErrorResponse
-// @Security     BearerAuth
-// @Router       /api/v1/admin/user/{userId}/admin-access [delete]
-func (h *AdminHandler) RevokeUserAdminAccess(c echo.Context) error {
-	ctx, accessInfo, err := handler_helpers.UserContext(c)
-	if err != nil {
-		return err
-	}
-	if err := h.usersService.RevokeUserAdminAccess(ctx, &user_service.RevokeUserAdminAccessRequest{
-		UserID: c.Param("userId"),
-	}, accessInfo); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)

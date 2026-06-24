@@ -23,7 +23,6 @@ type Repository interface {
 	WithTx(tx chi_repository.Tx) Repository
 
 	GetByUserID(ctx context.Context, userID string) (*models.AdminAccess, error)
-	DeleteByUserID(ctx context.Context, userID string) error
 }
 
 type repository struct {
@@ -44,8 +43,4 @@ func (r *repository) WithTx(tx chi_repository.Tx) Repository {
 
 func (r *repository) GetByUserID(ctx context.Context, userID string) (*models.AdminAccess, error) {
 	return r.repo.Get(ctx, squirrel.Eq{"user_id": userID}, nil)
-}
-
-func (r *repository) DeleteByUserID(ctx context.Context, userID string) error {
-	return r.repo.Delete(ctx, squirrel.Eq{"user_id": userID})
 }

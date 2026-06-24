@@ -109,3 +109,65 @@ func (s *TeamsHandlerSuite) TestAddTeamMember_Success() {
 	s.Equal(http.StatusCreated, rec.Code)
 	s.teamService.AssertExpectations(s.T())
 }
+
+func (s *TeamsHandlerSuite) TestUpdateTeam_Success() {
+	s.teamService.On("UpdateTeam", mock.Anything, mock.MatchedBy(func(req *team_service.UpdateTeamRequest) bool {
+		return req.OrganizationID == testOrgID && req.TeamID == testTeamID && req.Name == "Platform"
+	}), s.userAccess).Return(&models.Team{Name: "Platform"}, nil).Once()
+
+	s.echo.PATCH("/api/v1/organization/:orgId/team/:teamId", s.handler.UpdateTeam, s.withAccess)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/organization/"+testOrgID+"/team/"+testTeamID, strings.NewReader(`{"name":"Platform"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.teamService.AssertExpectations(s.T())
+}
+
+func (s *TeamsHandlerSuite) TestDeleteTeam_Success() {
+	s.teamService.On("DeleteTeam", mock.Anything, mock.MatchedBy(func(req *team_service.DeleteTeamRequest) bool {
+		return req.OrganizationID == testOrgID && req.TeamID == testTeamID
+	}), s.userAccess).Return(nil).Once()
+
+	s.echo.DELETE("/api/v1/organization/:orgId/team/:teamId", s.handler.DeleteTeam, s.withAccess)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/organization/"+testOrgID+"/team/"+testTeamID, nil)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+
+	s.Equal(http.StatusNoContent, rec.Code)
+	s.teamService.AssertExpectations(s.T())
+}
+
+func (s *TeamsHandlerSuite) TestListTeamMembers_Success() {
+	members := []models.TeamMemberWithUser{{TeamMember: models.TeamMember{}}}
+	s.teamService.On("ListTeamMembers", mock.Anything, mock.MatchedBy(func(req *team_service.ListTeamMembersRequest) bool {
+		return req.OrganizationID == testOrgID && req.TeamID == testTeamID
+	}), s.userAccess).Return(&members, nil).Once()
+
+	s.echo.GET("/api/v1/organization/:orgId/team/:teamId/member", s.handler.ListTeamMembers, s.withAccess)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/organization/"+testOrgID+"/team/"+testTeamID+"/member", nil)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.teamService.AssertExpectations(s.T())
+}
+
+func (s *TeamsHandlerSuite) TestRemoveTeamMember_Success() {
+	s.teamService.On("RemoveTeamMember", mock.Anything, mock.MatchedBy(func(req *team_service.RemoveTeamMemberRequest) bool {
+		return req.OrganizationID == testOrgID && req.TeamID == testTeamID && req.MemberID == testMemberID
+	}), s.userAccess).Return(nil).Once()
+
+	s.echo.DELETE("/api/v1/organization/:orgId/team/:teamId/member/:memberId", s.handler.RemoveTeamMember, s.withAccess)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/organization/"+testOrgID+"/team/"+testTeamID+"/member/"+testMemberID, nil)
+	rec := httptest.NewRecorder()
+	s.echo.ServeHTTP(rec, req)
+
+	s.Equal(http.StatusNoContent, rec.Code)
+	s.teamService.AssertExpectations(s.T())
+}

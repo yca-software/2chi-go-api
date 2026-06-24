@@ -605,6 +605,21 @@ func (s *OrganizationServiceSuite) TestDeleteOrganizationMember_Success() {
 	}, s.orgAccess(orgID, constants.PERMISSION_MEMBERS_DELETE))
 	s.NoError(err)
 }
+
+func (s *OrganizationServiceSuite) TestGetOrganizationBillingAccount_Success() {
+	orgID := uuid.New()
+	account := s.basicBillingAccount(orgID)
+
+	s.orgRepo.On("GetByID", s.ctx, orgID.String()).Return(s.organization(orgID, "Acme"), nil).Once()
+	s.billingAccounts.On("GetByOrganizationID", s.ctx, orgID.String()).Return(account, nil).Once()
+
+	result, err := s.svc.GetOrganizationBillingAccount(s.ctx, &organization_service.GetOrganizationBillingAccountRequest{
+		OrganizationID: orgID.String(),
+	}, s.orgAccess(orgID, constants.PERMISSION_SUBSCRIPTION_READ))
+	s.Require().NoError(err)
+	s.Equal(account.OrganizationID, result.OrganizationID)
+}
+
 func mockLogger() chi_logger.Logger {
 	m := new(chi_logger.MockLogger)
 	for n := 0; n <= 8; n++ {

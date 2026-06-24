@@ -142,3 +142,45 @@ func (s *AuthHandlerSuite) TestVerifyEmail_Success() {
 	s.Equal(http.StatusNoContent, rec.Code)
 	s.authService.AssertExpectations(s.T())
 }
+
+func (s *AuthHandlerSuite) TestAuthenticateWithGoogle_Success() {
+	s.authService.On("AuthenticateWithGoogle", mock.Anything, mock.Anything).
+		Return(&auth_service.AuthenticateResponse{AccessToken: "at", RefreshToken: "rt"}, nil).Once()
+
+	s.echo.POST("/api/v1/auth/oauth/google", s.handler.AuthenticateWithGoogle)
+	rec := s.postJSON("/api/v1/auth/oauth/google", `{"code":"google-auth-code","termsVersion":"1.0.0","privacyPolicyVersion":"1.0.0","language":"en"}`)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.authService.AssertExpectations(s.T())
+}
+
+func (s *AuthHandlerSuite) TestForgotPassword_Success() {
+	s.authService.On("ForgotPassword", mock.Anything, mock.Anything).Return(nil).Once()
+
+	s.echo.POST("/api/v1/auth/forgot-password", s.handler.ForgotPassword)
+	rec := s.postJSON("/api/v1/auth/forgot-password", `{"email":"user@example.com","language":"en"}`)
+
+	s.Equal(http.StatusNoContent, rec.Code)
+	s.authService.AssertExpectations(s.T())
+}
+
+func (s *AuthHandlerSuite) TestResetPassword_Success() {
+	s.authService.On("ResetPassword", mock.Anything, mock.Anything).Return(nil).Once()
+
+	s.echo.POST("/api/v1/auth/reset-password", s.handler.ResetPassword)
+	rec := s.postJSON("/api/v1/auth/reset-password", `{"token":"reset-token","password":"newpassword1"}`)
+
+	s.Equal(http.StatusNoContent, rec.Code)
+	s.authService.AssertExpectations(s.T())
+}
+
+func (s *AuthHandlerSuite) TestRefreshAccessToken_Success() {
+	s.authService.On("RefreshAccessToken", mock.Anything, mock.Anything).
+		Return(&auth_service.RefreshAccessTokenResponse{AccessToken: "at"}, nil).Once()
+
+	s.echo.POST("/api/v1/auth/refresh", s.handler.RefreshAccessToken)
+	rec := s.postJSON("/api/v1/auth/refresh", `{"refreshToken":"rt"}`)
+
+	s.Equal(http.StatusOK, rec.Code)
+	s.authService.AssertExpectations(s.T())
+}
