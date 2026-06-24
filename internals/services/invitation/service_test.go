@@ -25,7 +25,6 @@ import (
 	chi_localizer "github.com/yca-software/2chi-go-localizer"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_template "github.com/yca-software/2chi-go-template"
-	chi_repository "github.com/yca-software/2chi-go-repository"
 	chi_token "github.com/yca-software/2chi-go-token"
 	chi_types "github.com/yca-software/2chi-go-types"
 	chi_validator "github.com/yca-software/2chi-go-validator"
@@ -80,7 +79,7 @@ func (s *InvitationServiceSuite) SetupTest() {
 			Users:                       s.usersRepo,
 			Roles:                       s.rolesRepo,
 		},
-		RunInTx:      inlineRunInTx,
+		RunInTx:      testutil.InlineRunInTx,
 		SessionCache: authz.NewTestSessionCache(s.T(), constants.ACCESS_TOKEN_TTL),
 	})
 }
@@ -304,7 +303,7 @@ func (s *InvitationServiceSuite) TestCreateInvitation_EmailBodyContainsExpiryDay
 			Users:                       s.usersRepo,
 			Roles:                       s.rolesRepo,
 		},
-		RunInTx:        inlineRunInTx,
+		RunInTx:        testutil.InlineRunInTx,
 		SessionCache:   authz.NewTestSessionCache(s.T(), constants.ACCESS_TOKEN_TTL),
 		Localizer:      chi_localizer.New(constants.SUPPORTED_LANGUAGES, constants.DEFAULT_LANGUAGE, testutil.LocalesDir()),
 		EmailSender:    emailSender,
@@ -376,11 +375,6 @@ func (s *InvitationServiceSuite) TestCreateInvitation_AddExistingUser_Success() 
 	s.Require().NoError(err)
 	s.NotNil(resp.Member)
 }
-
-func inlineRunInTx(_ context.Context, fn func(chi_repository.Tx) error) error {
-	return fn(nil)
-}
-
 func mockLogger() chi_logger.Logger {
 	m := new(chi_logger.MockLogger)
 	for n := 0; n <= 8; n++ {

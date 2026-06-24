@@ -12,6 +12,7 @@ import (
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
 	"github.com/yca-software/2chi-go-api/internals/packages/authz"
+	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	admin_access_repository "github.com/yca-software/2chi-go-api/internals/repositories/admin_access"
 	impersonation_session_repository "github.com/yca-software/2chi-go-api/internals/repositories/impersonation_session"
@@ -27,7 +28,6 @@ import (
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_password "github.com/yca-software/2chi-go-password"
-	chi_repository "github.com/yca-software/2chi-go-repository"
 	chi_token "github.com/yca-software/2chi-go-token"
 	chi_types "github.com/yca-software/2chi-go-types"
 	chi_validator "github.com/yca-software/2chi-go-validator"
@@ -96,7 +96,7 @@ func (s *AuthServiceSuite) SetupTest() {
 			AdminAccess:                  s.adminAccessRepo,
 			OrganizationMembers:          s.membersRepo,
 		},
-		RunInTx:           inlineRunInTx,
+		RunInTx:           testutil.InlineRunInTx,
 		SessionCache:      s.sessionCache,
 		AccessTokenSecret: "test-secret-key-at-least-32-bytes-long",
 		AppURL:            "https://app.example.com",
@@ -196,7 +196,7 @@ func (s *AuthServiceSuite) TestSignUp_Success_RecordsBothLegalAcceptancesInTrans
 			AdminAccess:                  s.adminAccessRepo,
 			OrganizationMembers:          s.membersRepo,
 		},
-		RunInTx:           inlineRunInTx,
+		RunInTx:           testutil.InlineRunInTx,
 		SessionCache:      s.sessionCache,
 		AccessTokenSecret: "test-secret-key-at-least-32-bytes-long",
 		AppURL:            "https://app.example.com",
@@ -250,7 +250,7 @@ func (s *AuthServiceSuite) TestSignUp_PrivacyAcceptanceFailureDoesNotIssueTokens
 			Users:                        s.usersRepo,
 			UserLegalDocumentAcceptances: s.legalAcceptRepo,
 		},
-		RunInTx:           inlineRunInTx,
+		RunInTx:           testutil.InlineRunInTx,
 		SessionCache:      s.sessionCache,
 		AccessTokenSecret: "test-secret-key-at-least-32-bytes-long",
 		AppURL:            "https://app.example.com",
@@ -622,11 +622,6 @@ func (s *AuthServiceSuite) TestAuthenticateWithPassword_Success() {
 func fixedNow() time.Time {
 	return time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 }
-
-func inlineRunInTx(_ context.Context, fn func(chi_repository.Tx) error) error {
-	return fn(nil)
-}
-
 func configureMockLogger(m *chi_logger.MockLogger) {
 	for n := 0; n <= 8; n++ {
 		args := make([]any, n)

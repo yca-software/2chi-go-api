@@ -12,6 +12,7 @@ import (
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
 	"github.com/yca-software/2chi-go-api/internals/packages/authz"
+	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	billing_account_repository "github.com/yca-software/2chi-go-api/internals/repositories/billing_account"
 	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
@@ -27,7 +28,6 @@ import (
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_google "github.com/yca-software/2chi-go-google/maps"
 	chi_logger "github.com/yca-software/2chi-go-logger"
-	chi_repository "github.com/yca-software/2chi-go-repository"
 	chi_types "github.com/yca-software/2chi-go-types"
 	chi_validator "github.com/yca-software/2chi-go-validator"
 )
@@ -83,7 +83,7 @@ func (s *OrganizationServiceSuite) SetupTest() {
 			Roles:                       s.rolesRepo,
 			Users:                       s.usersRepo,
 		},
-		RunInTx:            inlineRunInTx,
+		RunInTx:            testutil.InlineRunInTx,
 		SessionCache:       s.sessionCache,
 		AuditService:       s.auditSvc,
 		LocationService:    s.locationSvc,
@@ -605,11 +605,6 @@ func (s *OrganizationServiceSuite) TestDeleteOrganizationMember_Success() {
 	}, s.orgAccess(orgID, constants.PERMISSION_MEMBERS_DELETE))
 	s.NoError(err)
 }
-
-func inlineRunInTx(_ context.Context, fn func(chi_repository.Tx) error) error {
-	return fn(nil)
-}
-
 func mockLogger() chi_logger.Logger {
 	m := new(chi_logger.MockLogger)
 	for n := 0; n <= 8; n++ {

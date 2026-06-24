@@ -6,8 +6,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
-	user_legal_document_acceptance_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_legal_document_acceptance"
 	platform_repository "github.com/yca-software/2chi-go-api/internals/packages/repository"
+	user_legal_document_acceptance_repository "github.com/yca-software/2chi-go-api/internals/repositories/user_legal_document_acceptance"
 	chi_types "github.com/yca-software/2chi-go-types"
 )
 

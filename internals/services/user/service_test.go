@@ -12,6 +12,7 @@ import (
 	"github.com/yca-software/2chi-go-api/internals/constants"
 	"github.com/yca-software/2chi-go-api/internals/models"
 	"github.com/yca-software/2chi-go-api/internals/packages/authz"
+	"github.com/yca-software/2chi-go-api/internals/packages/testutil"
 	"github.com/yca-software/2chi-go-api/internals/repositories"
 	admin_access_repository "github.com/yca-software/2chi-go-api/internals/repositories/admin_access"
 	organization_member_repository "github.com/yca-software/2chi-go-api/internals/repositories/org_member"
@@ -24,7 +25,6 @@ import (
 	chi_error "github.com/yca-software/2chi-go-error"
 	chi_logger "github.com/yca-software/2chi-go-logger"
 	chi_password "github.com/yca-software/2chi-go-password"
-	chi_repository "github.com/yca-software/2chi-go-repository"
 	chi_token "github.com/yca-software/2chi-go-token"
 	chi_types "github.com/yca-software/2chi-go-types"
 	chi_validator "github.com/yca-software/2chi-go-validator"
@@ -82,7 +82,7 @@ func (s *UserServiceSuite) SetupTest() {
 			AdminAccess:                  s.adminAccessRepo,
 			OrganizationMembers:          s.membersRepo,
 		},
-		RunInTx:      inlineRunInTx,
+		RunInTx:      testutil.InlineRunInTx,
 		SessionCache: s.sessionCache,
 		AppURL:       "https://app.example.com",
 	})
@@ -461,8 +461,4 @@ func mockLogger() chi_logger.Logger {
 		}
 	}
 	return m
-}
-
-func inlineRunInTx(_ context.Context, fn func(chi_repository.Tx) error) error {
-	return fn(nil)
 }
