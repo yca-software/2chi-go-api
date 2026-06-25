@@ -343,10 +343,6 @@ func (s *service) UpdateOrganizationSubscription(ctx context.Context, req *Updat
 		return nil, err
 	}
 
-	if _, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID); err != nil {
-		return nil, err
-	}
-
 	if err := platform_subscription.ValidateSubscriptionSeats(req.SubscriptionSeats, req.SubscriptionType); err != nil {
 		return nil, err
 	}
@@ -393,10 +389,6 @@ func (s *service) UpdateOrganizationSubscription(ctx context.Context, req *Updat
 func (s *service) UpdateOrganizationMember(ctx context.Context, req *UpdateOrganizationMemberRequest, access *chi_types.AccessInfo) (*models.OrganizationMemberWithUser, error) {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
-	}
-
-	if _, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID); err != nil {
-		return nil, err
 	}
 
 	billingAccount, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
@@ -516,10 +508,6 @@ func (s *service) RestoreOrganization(ctx context.Context, req *RestoreOrganizat
 func (s *service) DeleteOrganizationMember(ctx context.Context, req *DeleteOrganizationMemberRequest, access *chi_types.AccessInfo) error {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
-	}
-
-	if _, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID); err != nil {
-		return err
 	}
 
 	billingAccount, err := s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
@@ -660,10 +648,6 @@ func (s *service) ListOrganizations(ctx context.Context, req *ListOrganizationsR
 func (s *service) ListOrganizationMembers(ctx context.Context, req *ListOrganizationMembersRequest, access *chi_types.AccessInfo) (*[]models.OrganizationMemberWithUser, error) {
 	if err := s.validator.ValidateStruct(req); err != nil {
 		return nil, chi_error.NewUnprocessableEntityError(errors.New("validation failed"), "", err)
-	}
-
-	if _, err := s.organizationsRepo.GetByID(ctx, req.OrganizationID); err != nil {
-		return nil, err
 	}
 
 	if err := s.authorizer.CheckOrganizationPermission(access, req.OrganizationID, constants.PERMISSION_MEMBERS_READ); err != nil {
