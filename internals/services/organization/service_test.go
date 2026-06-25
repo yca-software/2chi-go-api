@@ -320,12 +320,13 @@ func (s *OrganizationServiceSuite) TestUpdateOrganization_Success() {
 }
 
 func (s *OrganizationServiceSuite) TestUpdateOrganizationSubscription_RequiresAdmin() {
+	expires := s.now.Add(30 * 24 * time.Hour)
 	_, err := s.svc.UpdateOrganizationSubscription(s.ctx, &organization_service.UpdateOrganizationSubscriptionRequest{
 		OrganizationID:        uuid.New().String(),
 		CustomSubscription:    true,
 		SubscriptionType:      constants.TIER_BASIC,
 		SubscriptionSeats:     3,
-		SubscriptionExpiresAt: s.now.Add(30 * 24 * time.Hour),
+		SubscriptionExpiresAt: &expires,
 	}, s.userAccess())
 	s.Error(err)
 }
@@ -348,7 +349,7 @@ func (s *OrganizationServiceSuite) TestUpdateOrganizationSubscription_Success() 
 		CustomSubscription:    true,
 		SubscriptionType:      constants.TIER_PRO,
 		SubscriptionSeats:     25,
-		SubscriptionExpiresAt: expires,
+		SubscriptionExpiresAt: &expires,
 	}, s.adminAccess())
 	s.Require().NoError(err)
 	s.Equal(constants.TIER_PRO, result.SubscriptionTier)
@@ -360,13 +361,13 @@ func (s *OrganizationServiceSuite) TestUpdateOrganizationSubscription_RejectsSea
 	s.orgRepo.On("GetByID", s.ctx, orgID.String()).
 		Return(s.organization(orgID, "Acme"), nil).Once()
 	s.orgMembersRepo.On("ListByOrganizationID", s.ctx, orgID.String()).Return(&members, nil).Once()
-
+	expires := s.now.Add(30 * 24 * time.Hour)
 	_, err := s.svc.UpdateOrganizationSubscription(s.ctx, &organization_service.UpdateOrganizationSubscriptionRequest{
 		OrganizationID:        orgID.String(),
 		CustomSubscription:    true,
 		SubscriptionType:      constants.TIER_BASIC,
 		SubscriptionSeats:     constants.SUBSCRIPTION_TYPE_SEATS_INCLUDED_BASIC,
-		SubscriptionExpiresAt: s.now.Add(30 * 24 * time.Hour),
+		SubscriptionExpiresAt: &expires,
 	}, s.adminAccess())
 	s.Error(err)
 	if apiErr, ok := chi_error.AsError(err); ok {

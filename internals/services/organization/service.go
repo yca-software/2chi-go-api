@@ -379,8 +379,7 @@ func (s *service) UpdateOrganizationSubscription(ctx context.Context, req *Updat
 	updatedAccount.Provider = provider
 	updatedAccount.SubscriptionTier = req.SubscriptionType
 	updatedAccount.SubscriptionSeats = req.SubscriptionSeats
-	expiresAt := req.SubscriptionExpiresAt
-	updatedAccount.SubscriptionExpiresAt = &expiresAt
+	updatedAccount.SubscriptionExpiresAt = req.SubscriptionExpiresAt
 
 	if txErr := s.runInTx(ctx, func(tx chi_repository.Tx) error {
 		return s.billingAccountsRepo.WithTx(tx).Update(ctx, &updatedAccount)
