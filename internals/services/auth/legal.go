@@ -10,34 +10,33 @@ import (
 	chi_types "github.com/yca-software/2chi-go-types"
 )
 
-func (s *service) createLegalDocumentAcceptance(
-	ctx context.Context,
-	repo user_legal_document_acceptance_repository.Repository,
-	userID uuid.UUID,
-	documentType, documentVersion string,
-) error {
-	acceptanceID, err := s.generateID()
-	if err != nil {
-		return err
-	}
-	return repo.Create(ctx, &models.UserLegalDocumentAcceptance{
-		ModelBase: chi_types.ModelBase{
-			ID: acceptanceID,
-		},
-		UserID:          userID,
-		DocumentType:    documentType,
-		DocumentVersion: documentVersion,
-	})
-}
-
 func (s *service) createLegalDocumentAcceptances(
 	ctx context.Context,
 	repo user_legal_document_acceptance_repository.Repository,
 	userID uuid.UUID,
 	termsVersion, privacyPolicyVersion string,
 ) error {
-	if err := s.createLegalDocumentAcceptance(ctx, repo, userID, constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE, termsVersion); err != nil {
+	termsID, err := s.generateID()
+	if err != nil {
 		return err
 	}
-	return s.createLegalDocumentAcceptance(ctx, repo, userID, constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY, privacyPolicyVersion)
+	if err := repo.Create(ctx, &models.UserLegalDocumentAcceptance{
+		ModelBase:       chi_types.ModelBase{ID: termsID},
+		UserID:          userID,
+		DocumentType:    constants.LEGAL_DOCUMENT_TYPE_TERMS_OF_SERVICE,
+		DocumentVersion: termsVersion,
+	}); err != nil {
+		return err
+	}
+
+	privacyID, err := s.generateID()
+	if err != nil {
+		return err
+	}
+	return repo.Create(ctx, &models.UserLegalDocumentAcceptance{
+		ModelBase:       chi_types.ModelBase{ID: privacyID},
+		UserID:          userID,
+		DocumentType:    constants.LEGAL_DOCUMENT_TYPE_PRIVACY_POLICY,
+		DocumentVersion: privacyPolicyVersion,
+	})
 }

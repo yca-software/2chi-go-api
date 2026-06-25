@@ -165,7 +165,7 @@ make test-integration
 
 When `react-spa` runs Playwright with `VITE_E2E=true`:
 
-- **Location:** `placeId` values prefixed `e2e-` return a stub address (no Maps key required).
+- **Location:** onboarding uses a fixed Google Place ID (`ChIJj61dQgK6j4AR4GeTYWZsY8` — 1600 Amphitheatre Parkway). Set `2CHI_GOOGLE__MAPS__API_KEY` in go-api `.env.local` so org create resolves the address.
 - **Billing:** emails `e2e+*@example.com` skip live Paddle `CreateCustomer`; `ctm_e2e_*` customers are not released on rollback.
 
 See [react-spa/e2e/README.md](../react-spa/e2e/README.md).

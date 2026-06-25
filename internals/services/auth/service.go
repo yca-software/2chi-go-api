@@ -185,10 +185,94 @@ func (s *service) AuthenticateWithGoogle(ctx context.Context, req *AuthenticateW
 
 	emailLower := strings.ToLower(googleUser.Email)
 	googleID := googleUser.ID
+	now := s.now()
 
-	user, err := s.resolveOrCreateGoogleUser(ctx, req, googleUser, emailLower, googleID, s.now())
-	if err != nil {
+	var user *models.User
+
+	identity, err := s.userIdentitiesRepo.GetByProviderAndProviderUserID(ctx, constants.USER_IDENTITY_PROVIDER_GOOGLE, googleID)
+	if err != nil && !platform_repository.IsNotFound(err) {
 		return nil, err
+	}
+	if identity != nil {
+		user, err = s.usersRepo.GetByID(ctx, identity.UserID.String())
+		if err != nil {
+			return nil, err
+		}
+		if req.InvitationToken != "" {
+			if err := s.acceptInvitationForUser(ctx, req.InvitationToken, emailLower, user, req.TermsVersion, req.PrivacyPolicyVersion, false); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		existingUser, err := s.usersRepo.GetByEmail(ctx, emailLower)
+		if err != nil && !platform_repository.IsNotFound(err) {
+			return nil, err
+		}
+
+		if existingUser != nil {
+			if googleUser.Picture != "" {
+				existingUser.AvatarURL = googleUser.Picture
+			}
+			if existingUser.EmailVerifiedAt == nil {
+				existingUser.EmailVerifiedAt = &now
+			}
+			if err := s.runInTx(ctx, func(tx chi_repository.Tx) error {
+				if err := s.usersRepo.WithTx(tx).Update(ctx, existingUser); err != nil {
+					return err
+				}
+				return s.createGoogleIdentity(ctx, tx, existingUser.ID, googleID)
+			}); err != nil {
+				return nil, err
+			}
+			user = existingUser
+			if req.InvitationToken != "" {
+				if err := s.acceptInvitationForUser(ctx, req.InvitationToken, emailLower, user, req.TermsVersion, req.PrivacyPolicyVersion, false); err != nil {
+					return nil, err
+				}
+			}
+		} else {
+			userID, err := s.generateID()
+			if err != nil {
+				return nil, err
+			}
+
+			language := platform_i18n.NormalizeLanguage(req.Language)
+			firstName, lastName := platform_oauth.GoogleUserNames(googleUser)
+
+			user = &models.User{
+				ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
+					ModelBase: chi_types.ModelBase{
+						ID:        userID,
+						CreatedAt: now,
+					},
+				},
+				FirstName:       firstName,
+				LastName:        lastName,
+				Language:        language,
+				Email:           emailLower,
+				AvatarURL:       googleUser.Picture,
+				EmailVerifiedAt: &now,
+			}
+
+			if req.InvitationToken != "" {
+				if err := s.acceptInvitationForUser(ctx, req.InvitationToken, emailLower, user, req.TermsVersion, req.PrivacyPolicyVersion, true); err != nil {
+					return nil, err
+				}
+				if err := s.createGoogleIdentity(ctx, nil, user.ID, googleID); err != nil {
+					return nil, err
+				}
+			} else if err := s.runInTx(ctx, func(tx chi_repository.Tx) error {
+				if err := s.usersRepo.WithTx(tx).Create(ctx, user); err != nil {
+					return err
+				}
+				if err := s.createLegalDocumentAcceptances(ctx, s.legalDocumentAcceptancesRepo.WithTx(tx), user.ID, req.TermsVersion, req.PrivacyPolicyVersion); err != nil {
+					return err
+				}
+				return s.createGoogleIdentity(ctx, tx, user.ID, googleID)
+			}); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	return s.issueAuthTokens(ctx, user, "", "", req.IPAddress, req.UserAgent, constants.REFRESH_TOKEN_TTL)
@@ -231,7 +315,28 @@ func (s *service) ForgotPassword(ctx context.Context, req *ForgotPasswordRequest
 		return err
 	}
 
-	return s.sendPasswordResetEmail(ctx, user.Email, req.Language, resetToken)
+	if s.emailSender == nil || s.emailTemplates == nil || s.localizer == nil {
+		return chi_error.NewInternalServerError(errors.New("email is not configured"), "InternalServerError", nil)
+	}
+
+	language := platform_i18n.NormalizeLanguage(req.Language)
+	body, err := s.emailTemplates.Render("reset", map[string]any{
+		"Lang":         language,
+		"Title":        s.localizer.Translate(language, "email.reset.title", nil),
+		"Greeting":     s.localizer.Translate(language, "email.reset.greeting", nil),
+		"Content":      s.localizer.Translate(language, "email.reset.content", nil),
+		"Warning":      s.localizer.Translate(language, "email.reset.warning", nil),
+		"ButtonText":   s.localizer.Translate(language, "email.reset.button", nil),
+		"FooterIgnore": s.localizer.Translate(language, "email.reset.footer.ignore", nil),
+		"FooterLink":   s.localizer.Translate(language, "email.reset.footer.link", nil),
+		"C2ALink":      fmt.Sprintf("%s/reset-password?token=%s", s.appURL, resetToken),
+	})
+	if err != nil {
+		return chi_error.NewInternalServerError(err, "InternalServerError", nil)
+	}
+
+	subject := s.localizer.Translate(language, "email.reset.subject", nil)
+	return s.emailSender.Send(ctx, chi_aws_ses.SESEmailDataPayload{To: user.Email, Subject: subject, HTML: body})
 }
 
 func (s *service) Logout(ctx context.Context, req *LogoutRequest, access *chi_types.AccessInfo) error {
@@ -433,10 +538,15 @@ func (s *service) SignUp(ctx context.Context, req *SignUpRequest) (*SignUpRespon
 	}
 
 	if req.InvitationToken != "" {
-		if err := s.signUpUserWithInvitation(ctx, req.InvitationToken, emailLower, user, req.TermsVersion, req.PrivacyPolicyVersion); err != nil {
+		if err := s.acceptInvitationForUser(ctx, req.InvitationToken, emailLower, user, req.TermsVersion, req.PrivacyPolicyVersion, true); err != nil {
 			return nil, err
 		}
-	} else if err := s.createUserWithLegalAcceptances(ctx, user, req.TermsVersion, req.PrivacyPolicyVersion); err != nil {
+	} else if err := s.runInTx(ctx, func(tx chi_repository.Tx) error {
+		if err := s.usersRepo.WithTx(tx).Create(ctx, user); err != nil {
+			return err
+		}
+		return s.createLegalDocumentAcceptances(ctx, s.legalDocumentAcceptancesRepo.WithTx(tx), user.ID, req.TermsVersion, req.PrivacyPolicyVersion)
+	}); err != nil {
 		return nil, err
 	}
 
@@ -465,8 +575,26 @@ func (s *service) SignUp(ctx context.Context, req *SignUpRequest) (*SignUpRespon
 		return nil, err
 	}
 
-	if err := s.sendVerificationEmail(ctx, user.Email, language, verificationToken); err != nil {
-		s.logger.WithContext(ctx).Error("failed to send verification email after sign up", "error", err, "userId", user.ID.String())
+	if s.emailSender != nil && s.emailTemplates != nil && s.localizer != nil {
+		body, renderErr := s.emailTemplates.Render("verification", map[string]any{
+			"Lang":         language,
+			"Title":        s.localizer.Translate(language, "email.verification.title", nil),
+			"Greeting":     s.localizer.Translate(language, "email.verification.greeting", nil),
+			"Content":      s.localizer.Translate(language, "email.verification.content", nil),
+			"Warning":      s.localizer.Translate(language, "email.verification.warning", nil),
+			"ButtonText":   s.localizer.Translate(language, "email.verification.button", nil),
+			"FooterIgnore": s.localizer.Translate(language, "email.verification.footer.ignore", nil),
+			"FooterLink":   s.localizer.Translate(language, "email.verification.footer.link", nil),
+			"C2ALink":      fmt.Sprintf("%s/verify-email?token=%s", s.appURL, verificationToken),
+		})
+		if renderErr != nil {
+			s.logger.WithContext(ctx).Error("failed to render verification email after sign up", "error", renderErr, "userId", user.ID.String())
+		} else {
+			subject := s.localizer.Translate(language, "email.verification.subject", nil)
+			if sendErr := s.emailSender.Send(ctx, chi_aws_ses.SESEmailDataPayload{To: user.Email, Subject: subject, HTML: body}); sendErr != nil {
+				s.logger.WithContext(ctx).Error("failed to send verification email after sign up", "error", sendErr, "userId", user.ID.String())
+			}
+		}
 	}
 
 	return &SignUpResponse{
@@ -684,99 +812,6 @@ func (s *service) generateAccessToken(ctx context.Context, user *models.User, im
 	return token.SignedString([]byte(s.accessTokenSecret))
 }
 
-func (s *service) resolveOrCreateGoogleUser(
-	ctx context.Context,
-	req *AuthenticateWithGoogleRequest,
-	googleUser *chi_google_oauth.UserInfo,
-	emailLower, googleID string,
-	now time.Time,
-) (*models.User, error) {
-	identity, err := s.userIdentitiesRepo.GetByProviderAndProviderUserID(ctx, constants.USER_IDENTITY_PROVIDER_GOOGLE, googleID)
-	if err != nil && !platform_repository.IsNotFound(err) {
-		return nil, err
-	}
-	if identity != nil {
-		user, err := s.usersRepo.GetByID(ctx, identity.UserID.String())
-		if err != nil {
-			return nil, err
-		}
-		if req.InvitationToken != "" {
-			if err := s.acceptInvitationForUser(ctx, req.InvitationToken, emailLower, user, req.TermsVersion, req.PrivacyPolicyVersion); err != nil {
-				return nil, err
-			}
-		}
-		return user, nil
-	}
-
-	existingUser, err := s.usersRepo.GetByEmail(ctx, emailLower)
-	if err != nil && !platform_repository.IsNotFound(err) {
-		return nil, err
-	}
-
-	if existingUser != nil {
-		if err := s.linkGoogleIdentity(ctx, existingUser, googleID, googleUser, now); err != nil {
-			return nil, err
-		}
-		if req.InvitationToken != "" {
-			if err := s.acceptInvitationForUser(ctx, req.InvitationToken, emailLower, existingUser, req.TermsVersion, req.PrivacyPolicyVersion); err != nil {
-				return nil, err
-			}
-		}
-		return existingUser, nil
-	}
-
-	userID, err := s.generateID()
-	if err != nil {
-		return nil, err
-	}
-
-	language := platform_i18n.NormalizeLanguage(req.Language)
-	firstName, lastName := platform_oauth.GoogleUserNames(googleUser)
-
-	user := &models.User{
-		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
-			ModelBase: chi_types.ModelBase{
-				ID:        userID,
-				CreatedAt: now,
-			},
-		},
-		FirstName:       firstName,
-		LastName:        lastName,
-		Language:        language,
-		Email:           emailLower,
-		AvatarURL:       googleUser.Picture,
-		EmailVerifiedAt: &now,
-	}
-
-	if req.InvitationToken != "" {
-		if err := s.signUpUserWithInvitation(ctx, req.InvitationToken, emailLower, user, req.TermsVersion, req.PrivacyPolicyVersion); err != nil {
-			return nil, err
-		}
-		if err := s.createGoogleIdentity(ctx, nil, user.ID, googleID); err != nil {
-			return nil, err
-		}
-	} else if err := s.createUserWithLegalAcceptancesAndGoogleIdentity(ctx, user, googleID, req.TermsVersion, req.PrivacyPolicyVersion); err != nil {
-		return nil, err
-	}
-
-	return user, nil
-}
-
-func (s *service) linkGoogleIdentity(ctx context.Context, user *models.User, googleID string, googleUser *chi_google_oauth.UserInfo, now time.Time) error {
-	if googleUser.Picture != "" {
-		user.AvatarURL = googleUser.Picture
-	}
-	if user.EmailVerifiedAt == nil {
-		user.EmailVerifiedAt = &now
-	}
-	return s.runInTx(ctx, func(tx chi_repository.Tx) error {
-		if err := s.usersRepo.WithTx(tx).Update(ctx, user); err != nil {
-			return err
-		}
-		return s.createGoogleIdentity(ctx, tx, user.ID, googleID)
-	})
-}
-
 func (s *service) createGoogleIdentity(ctx context.Context, tx chi_repository.Tx, userID uuid.UUID, googleID string) error {
 	identityID, err := s.generateID()
 	if err != nil {
@@ -796,47 +831,18 @@ func (s *service) createGoogleIdentity(ctx context.Context, tx chi_repository.Tx
 	})
 }
 
-func (s *service) createUserWithLegalAcceptances(ctx context.Context, user *models.User, termsVersion, privacyPolicyVersion string) error {
-	return s.runInTx(ctx, func(tx chi_repository.Tx) error {
-		if err := s.usersRepo.WithTx(tx).Create(ctx, user); err != nil {
-			return err
-		}
-		return s.createLegalDocumentAcceptances(ctx, s.legalDocumentAcceptancesRepo.WithTx(tx), user.ID, termsVersion, privacyPolicyVersion)
-	})
-}
-
-func (s *service) createUserWithLegalAcceptancesAndGoogleIdentity(ctx context.Context, user *models.User, googleID, termsVersion, privacyPolicyVersion string) error {
-	return s.runInTx(ctx, func(tx chi_repository.Tx) error {
-		if err := s.usersRepo.WithTx(tx).Create(ctx, user); err != nil {
-			return err
-		}
-		if err := s.createLegalDocumentAcceptances(ctx, s.legalDocumentAcceptancesRepo.WithTx(tx), user.ID, termsVersion, privacyPolicyVersion); err != nil {
-			return err
-		}
-		return s.createGoogleIdentity(ctx, tx, user.ID, googleID)
-	})
-}
-
-func (s *service) signUpUserWithInvitation(ctx context.Context, invitationToken, emailLower string, user *models.User, termsVersion, privacyPolicyVersion string) error {
+func (s *service) acceptInvitationForUser(
+	ctx context.Context,
+	invitationToken, emailLower string,
+	user *models.User,
+	termsVersion, privacyPolicyVersion string,
+	createUser bool,
+) error {
 	invitation, err := s.validateInvitationAcceptance(ctx, invitationToken, emailLower)
 	if err != nil {
 		return err
 	}
-	if err := s.persistUserAndInvitationAcceptance(ctx, invitation, user, true, termsVersion, privacyPolicyVersion); err != nil {
-		return err
-	}
-	if s.sessionCache != nil {
-		return s.sessionCache.InvalidateSession(ctx, user.ID.String())
-	}
-	return nil
-}
-
-func (s *service) acceptInvitationForUser(ctx context.Context, invitationToken, emailLower string, user *models.User, termsVersion, privacyPolicyVersion string) error {
-	invitation, err := s.validateInvitationAcceptance(ctx, invitationToken, emailLower)
-	if err != nil {
-		return err
-	}
-	if err := s.persistUserAndInvitationAcceptance(ctx, invitation, user, false, termsVersion, privacyPolicyVersion); err != nil {
+	if err := s.persistUserAndInvitationAcceptance(ctx, invitation, user, createUser, termsVersion, privacyPolicyVersion); err != nil {
 		return err
 	}
 	if s.sessionCache != nil {
@@ -947,52 +953,4 @@ func (s *service) persistUserAndInvitationAcceptance(ctx context.Context, invita
 		}
 		return nil
 	})
-}
-
-func (s *service) sendVerificationEmail(ctx context.Context, to, language, token string) error {
-	if s.emailSender == nil || s.emailTemplates == nil || s.localizer == nil {
-		return chi_error.NewInternalServerError(errors.New("email is not configured"), "InternalServerError", nil)
-	}
-
-	body, err := s.emailTemplates.Render("verification", map[string]any{
-		"Lang":         language,
-		"Title":        s.localizer.Translate(language, "email.verification.title", nil),
-		"Greeting":     s.localizer.Translate(language, "email.verification.greeting", nil),
-		"Content":      s.localizer.Translate(language, "email.verification.content", nil),
-		"Warning":      s.localizer.Translate(language, "email.verification.warning", nil),
-		"ButtonText":   s.localizer.Translate(language, "email.verification.button", nil),
-		"FooterIgnore": s.localizer.Translate(language, "email.verification.footer.ignore", nil),
-		"FooterLink":   s.localizer.Translate(language, "email.verification.footer.link", nil),
-		"C2ALink":      fmt.Sprintf("%s/verify-email?token=%s", s.appURL, token),
-	})
-	if err != nil {
-		return chi_error.NewInternalServerError(err, "InternalServerError", nil)
-	}
-
-	subject := s.localizer.Translate(language, "email.verification.subject", nil)
-	return s.emailSender.Send(ctx, chi_aws_ses.SESEmailDataPayload{To: to, Subject: subject, HTML: body})
-}
-
-func (s *service) sendPasswordResetEmail(ctx context.Context, to, language, token string) error {
-	if s.emailSender == nil || s.emailTemplates == nil || s.localizer == nil {
-		return chi_error.NewInternalServerError(errors.New("email is not configured"), "InternalServerError", nil)
-	}
-
-	body, err := s.emailTemplates.Render("reset", map[string]any{
-		"Lang":         language,
-		"Title":        s.localizer.Translate(language, "email.reset.title", nil),
-		"Greeting":     s.localizer.Translate(language, "email.reset.greeting", nil),
-		"Content":      s.localizer.Translate(language, "email.reset.content", nil),
-		"Warning":      s.localizer.Translate(language, "email.reset.warning", nil),
-		"ButtonText":   s.localizer.Translate(language, "email.reset.button", nil),
-		"FooterIgnore": s.localizer.Translate(language, "email.reset.footer.ignore", nil),
-		"FooterLink":   s.localizer.Translate(language, "email.reset.footer.link", nil),
-		"C2ALink":      fmt.Sprintf("%s/reset-password?token=%s", s.appURL, token),
-	})
-	if err != nil {
-		return chi_error.NewInternalServerError(err, "InternalServerError", nil)
-	}
-
-	subject := s.localizer.Translate(language, "email.reset.subject", nil)
-	return s.emailSender.Send(ctx, chi_aws_ses.SESEmailDataPayload{To: to, Subject: subject, HTML: body})
 }
