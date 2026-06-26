@@ -595,10 +595,8 @@ func (s *service) GetOrganizationBillingAccount(ctx context.Context, req *GetOrg
 		return nil, err
 	}
 
-	if err := s.authorizer.CheckOrganizationPermission(access, org.ID.String(), constants.PERMISSION_ORG_READ); err != nil {
-		if subErr := s.authorizer.CheckOrganizationPermission(access, org.ID.String(), constants.PERMISSION_SUBSCRIPTION_READ); subErr != nil {
-			return nil, err
-		}
+	if err := s.authorizer.CheckOrganizationPermission(access, org.ID.String(), constants.PERMISSION_ORG_READ, constants.PERMISSION_SUBSCRIPTION_READ); err != nil {
+		return nil, err
 	}
 
 	return s.billingAccountsRepo.GetByOrganizationID(ctx, req.OrganizationID)
@@ -691,8 +689,7 @@ func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateO
 	org := &models.Organization{
 		ModelBaseWithArchive: chi_types.ModelBaseWithArchive{
 			ModelBase: chi_types.ModelBase{
-				ID:        orgID,
-				CreatedAt: now,
+				ID: orgID,
 			},
 		},
 		Name:     strings.TrimSpace(req.Name),
@@ -767,8 +764,7 @@ func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateO
 		}
 		membership = &models.OrganizationMember{
 			ModelBase: chi_types.ModelBase{
-				ID:        membershipID,
-				CreatedAt: now,
+				ID: membershipID,
 			},
 			OrganizationID: orgID,
 			UserID:         existingUser.ID,
@@ -777,15 +773,13 @@ func (s *service) AdminCreateOrganization(ctx context.Context, req *AdminCreateO
 	}
 
 	if txErr := s.runInTx(ctx, func(tx chi_repository.Tx) error {
-		orgRepo := s.organizationsRepo.WithTx(tx)
-		if err := orgRepo.Create(ctx, org); err != nil {
+		if err := s.organizationsRepo.WithTx(tx).Create(ctx, org); err != nil {
 			return err
 		}
 		if err := s.billingAccountsRepo.WithTx(tx).Create(ctx, billingAccount); err != nil {
 			return err
 		}
-		rolesRepo := s.rolesRepo.WithTx(tx)
-		if err := rolesRepo.CreateMany(ctx, &roles); err != nil {
+		if err := s.rolesRepo.WithTx(tx).CreateMany(ctx, &roles); err != nil {
 			return err
 		}
 		if membership != nil {
