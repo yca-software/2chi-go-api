@@ -616,7 +616,7 @@ func (s *OrganizationServiceSuite) TestGetOrganizationBillingAccount_Success() {
 
 	result, err := s.svc.GetOrganizationBillingAccount(s.ctx, &organization_service.GetOrganizationBillingAccountRequest{
 		OrganizationID: orgID.String(),
-	}, s.orgAccess(orgID, constants.PERMISSION_SUBSCRIPTION_READ))
+	}, s.orgAccess(orgID, constants.PERMISSION_ORG_READ, constants.PERMISSION_SUBSCRIPTION_READ))
 	s.Require().NoError(err)
 	s.Equal(account.OrganizationID, result.OrganizationID)
 }
