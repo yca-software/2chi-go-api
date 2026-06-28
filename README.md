@@ -87,8 +87,8 @@ Set `VITE_API_URL=http://localhost:1300/api/v1` and align `VITE_APP_NAME` / `VIT
 ```
 cmd/
   api/          # HTTP server
-  worker/       # SQS job consumer
-  cron/         # Scheduled jobs
+  worker/       # SQS job consumer (apply scheduled plan changes)
+  cron/         # Scheduled tasks (cleanup inline; plan changes published to SQS)
   migrate/      # goose migrations CLI
 internals/
   handlers/     # HTTP layer (thin)

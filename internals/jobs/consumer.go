@@ -54,13 +54,6 @@ func (c *Client) consumeWorker(ctx context.Context, queueURL, queueName string, 
 	}
 }
 
-func (c *Client) jobMetrics() chi_observer.JobMetricsHook {
-	if c.metrics != nil {
-		return c.metrics
-	}
-	return chi_observer.NoopJobMetricsHook
-}
-
 func (c *Client) processMessage(ctx context.Context, queueURL, queueName string, msg chi_aws_sqs.QueueMessage, handler func() error, errLog string) {
 	retryCount := parseRetryCount(msg.Attributes[attrRetryCount])
 	start := time.Now()
@@ -77,7 +70,7 @@ func (c *Client) processMessage(ctx context.Context, queueURL, queueName string,
 		c.logger.WithContext(ctx).Error(errLog, "error", err, "queue", queueName, "retryCount", retryCount)
 	}
 
-	if classifyJobError(err, retryCount, c.infraMaxRetries) {
+	if ClassifyJobError(err, retryCount, c.infraMaxRetries) {
 		c.jobMetrics().RecordJobConsumerOutcome(queueName, chi_observer.JobOutcomeDeadLetter)
 		_ = c.sqs.DeleteMessage(ctx, queueURL, msg.ReceiptHandle)
 		return

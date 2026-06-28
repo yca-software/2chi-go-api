@@ -43,8 +43,8 @@ func main() {
 		return runtime.StartObservabilityServer(ctx, deps)
 	})
 	g.Go(func() error {
-		appLogger.Info("starting cron publisher", "env", cfg.App.Environment, "metricsPort", cfg.Server.MetricsPort)
-		return runtime.RunCronPublisher(ctx, deps)
+		appLogger.Info("starting cron scheduler", "env", cfg.App.Environment, "metricsPort", cfg.Server.MetricsPort)
+		return runtime.RunCron(ctx, deps)
 	})
 
 	go func() {

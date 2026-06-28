@@ -25,7 +25,6 @@ func (s *ClientConfigSuite) SetupTest() {
 
 func (s *ClientConfigSuite) TestNewClient_MissingSQS() {
 	_, err := jobs.NewClient(jobs.Config{
-		CleanupQueueURL:            "https://sqs/cleanup",
 		ApplyScheduledPlanQueueURL: "https://sqs/apply",
 		Logger:                     s.logger,
 	})
@@ -33,13 +32,13 @@ func (s *ClientConfigSuite) TestNewClient_MissingSQS() {
 	s.Contains(err.Error(), "SQS")
 }
 
-func (s *ClientConfigSuite) TestNewClient_MissingQueueURLs() {
+func (s *ClientConfigSuite) TestNewClient_MissingQueueURL() {
 	_, err := jobs.NewClient(jobs.Config{
 		SQS:    stubSQS{},
 		Logger: s.logger,
 	})
 	s.Error(err)
-	s.Contains(err.Error(), "queue URLs")
+	s.Contains(err.Error(), "queue URL")
 }
 
 type stubSQS struct{}

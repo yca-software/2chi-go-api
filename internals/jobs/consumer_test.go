@@ -4,82 +4,122 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	chi_aws_sqs "github.com/yca-software/2chi-go-aws/sqs"
-	chi_error "github.com/yca-software/2chi-go-error"
 	chi_logger "github.com/yca-software/2chi-go-logger"
+	chi_observer "github.com/yca-software/2chi-go-observer"
 )
 
-func testJobsLogger() chi_logger.Logger {
-	return chi_logger.New(chi_logger.LoggerConfig{OutputType: "json", ThresholdLevel: "error"})
-}
-
-func TestParseRetryCount(t *testing.T) {
+func TestProcessMessage_RecordsSuccessMetrics(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, 0, parseRetryCount(""))
-	require.Equal(t, 2, parseRetryCount("2"))
-	require.Equal(t, 0, parseRetryCount("bad"))
-	require.Equal(t, 0, parseRetryCount("-1"))
-}
-
-func TestProcessMessage_SuccessDeletes(t *testing.T) {
-	t.Parallel()
+	metrics := &recordingJobMetrics{}
 	sqs := &recordingSQS{}
-	client := &Client{sqs: sqs, infraMaxRetries: 3, logger: testJobsLogger()}
+	client := &Client{sqs: sqs, infraMaxRetries: 3, logger: testJobsLogger(), metrics: metrics}
 	msg := chi_aws_sqs.QueueMessage{Body: "1", ReceiptHandle: "rh-1"}
 
-	client.processMessage(context.Background(), "https://sqs/cleanup", QueueCleanup, msg, func() error {
+	client.processMessage(context.Background(), "https://sqs/apply", QueueApplyScheduledPlanChanges, msg, func() error {
 		return nil
 	}, "")
 
-	require.Equal(t, []string{"rh-1"}, sqs.deleted)
-	require.Empty(t, sqs.sentBodies)
+	require.Equal(t, [][2]string{{QueueApplyScheduledPlanChanges, chi_observer.JobOutcomeSuccess}}, metrics.outcomes)
+	require.Len(t, metrics.durations, 1)
+	require.Equal(t, QueueApplyScheduledPlanChanges, metrics.durations[0].job)
 }
 
-func TestProcessMessage_NonRetryableDeletesWithoutRepublish(t *testing.T) {
+func TestProcessMessage_RetriesRetryableError(t *testing.T) {
 	t.Parallel()
+	metrics := &recordingJobMetrics{}
 	sqs := &recordingSQS{}
-	client := &Client{sqs: sqs, infraMaxRetries: 3, logger: testJobsLogger()}
-	msg := chi_aws_sqs.QueueMessage{Body: "1", ReceiptHandle: "rh-2"}
-
-	err := chi_error.NewBadRequestError(errors.New("bad"), "BadRequest", nil)
-	client.processMessage(context.Background(), "https://sqs/cleanup", QueueCleanup, msg, func() error {
-		return err
-	}, "cleanup job failed")
-
-	require.Equal(t, []string{"rh-2"}, sqs.deleted)
-	require.Empty(t, sqs.sentBodies)
-}
-
-func TestProcessMessage_RetryableRepublishesWithIncrementedCount(t *testing.T) {
-	t.Parallel()
-	sqs := &recordingSQS{}
-	client := &Client{sqs: sqs, infraMaxRetries: 3, logger: testJobsLogger()}
-	msg := chi_aws_sqs.QueueMessage{
-		Body:          "1",
-		ReceiptHandle: "rh-3",
-		Attributes:    map[string]string{attrRetryCount: "1"},
+	client := &Client{
+		sqs:             sqs,
+		applyPlanURL:    "https://sqs/apply",
+		infraMaxRetries: 3,
+		logger:          testJobsLogger(),
+		metrics:         metrics,
 	}
+	msg := chi_aws_sqs.QueueMessage{Body: "1", ReceiptHandle: "rh-1"}
 
-	client.processMessage(context.Background(), "https://sqs/cleanup", QueueCleanup, msg, func() error {
+	client.processMessage(context.Background(), "https://sqs/apply", QueueApplyScheduledPlanChanges, msg, func() error {
 		return Retryable(errors.New("timeout"))
-	}, "cleanup job failed")
+	}, "")
 
-	require.Equal(t, []string{"rh-3"}, sqs.deleted)
-	require.Len(t, sqs.sentBodies, 1)
-	require.Equal(t, "2", sqs.sentAttrs[0][attrRetryCount])
+	require.Equal(t, [][2]string{{QueueApplyScheduledPlanChanges, chi_observer.JobOutcomeRetryRepublished}}, metrics.outcomes)
+	require.Len(t, sqs.sent, 1)
+	require.Equal(t, "1", sqs.sent[0].attrs["retry_count"])
+}
+
+func TestProcessMessage_DropsPermanentError(t *testing.T) {
+	t.Parallel()
+	metrics := &recordingJobMetrics{}
+	sqs := &recordingSQS{}
+	client := &Client{sqs: sqs, infraMaxRetries: 3, logger: testJobsLogger(), metrics: metrics}
+	msg := chi_aws_sqs.QueueMessage{Body: "1", ReceiptHandle: "rh-1"}
+
+	client.processMessage(context.Background(), "https://sqs/apply", QueueApplyScheduledPlanChanges, msg, func() error {
+		return errors.New("bad input")
+	}, "")
+
+	require.Equal(t, [][2]string{{QueueApplyScheduledPlanChanges, chi_observer.JobOutcomeDeadLetter}}, metrics.outcomes)
+	require.Empty(t, sqs.sent)
+}
+
+func TestPublishApplyScheduledPlanChanges_RecordsPublishedMetric(t *testing.T) {
+	t.Parallel()
+	metrics := &recordingJobMetricsWithPublished{}
+	sqs := &recordingSQS{}
+	client := &Client{sqs: sqs, applyPlanURL: "https://sqs/apply", metrics: metrics}
+
+	require.NoError(t, client.PublishApplyScheduledPlanChanges(context.Background()))
+	require.Equal(t, []string{QueueApplyScheduledPlanChanges}, metrics.published)
+}
+
+type recordingJobMetrics struct {
+	outcomes  [][2]string
+	durations []struct {
+		job string
+		d   time.Duration
+	}
+}
+
+func (r *recordingJobMetrics) RecordJobPublished(string) {}
+
+func (r *recordingJobMetrics) RecordJobConsumerOutcome(job, outcome string) {
+	r.outcomes = append(r.outcomes, [2]string{job, outcome})
+}
+
+func (r *recordingJobMetrics) RecordJobConsumerDuration(job string, duration time.Duration) {
+	r.durations = append(r.durations, struct {
+		job string
+		d   time.Duration
+	}{job, duration})
+}
+
+type recordingJobMetricsWithPublished struct {
+	recordingJobMetrics
+	published []string
+}
+
+func (r *recordingJobMetricsWithPublished) RecordJobPublished(job string) {
+	r.published = append(r.published, job)
 }
 
 type recordingSQS struct {
-	deleted    []string
-	sentBodies [][]byte
-	sentAttrs  []map[string]string
+	sent []sentMessage
+}
+
+type sentMessage struct {
+	body  []byte
+	attrs map[string]string
 }
 
 func (r *recordingSQS) SendMessage(_ context.Context, _ string, body []byte, attrs map[string]string) error {
-	r.sentBodies = append(r.sentBodies, body)
-	r.sentAttrs = append(r.sentAttrs, attrs)
+	copied := make(map[string]string, len(attrs))
+	for k, v := range attrs {
+		copied[k] = v
+	}
+	r.sent = append(r.sent, sentMessage{body: body, attrs: copied})
 	return nil
 }
 
@@ -87,11 +127,12 @@ func (r *recordingSQS) ReceiveMessages(context.Context, chi_aws_sqs.ReceiveOptio
 	return nil, nil
 }
 
-func (r *recordingSQS) DeleteMessage(_ context.Context, _, receiptHandle string) error {
-	r.deleted = append(r.deleted, receiptHandle)
-	return nil
-}
+func (r *recordingSQS) DeleteMessage(context.Context, string, string) error { return nil }
 
 func (r *recordingSQS) ChangeMessageVisibility(context.Context, string, string, int32) error {
 	return nil
+}
+
+func testJobsLogger() chi_logger.Logger {
+	return chi_logger.New(chi_logger.LoggerConfig{OutputType: "json", ThresholdLevel: "error"})
 }

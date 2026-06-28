@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/suite"
-	chi_error "github.com/yca-software/2chi-go-error"
 	"github.com/yca-software/2chi-go-api/internals/jobs"
 )
 
@@ -17,27 +16,20 @@ func TestRetrySuite(t *testing.T) {
 	suite.Run(t, new(RetrySuite))
 }
 
-func (s *RetrySuite) TestIsRetryable_InfrastructureMarker() {
+func (s *RetrySuite) TestIsRetryable() {
 	s.True(jobs.IsRetryable(jobs.Retryable(errors.New("sqs down"))))
 }
 
-func (s *RetrySuite) TestIsRetryable_API5xx() {
-	err := chi_error.NewInternalServerError(errors.New("db"), "InternalServerError", nil)
-	s.True(jobs.IsRetryable(err))
-}
-
-func (s *RetrySuite) TestIsRetryable_API4xx() {
-	err := chi_error.NewBadRequestError(errors.New("bad"), "BadRequest", nil)
-	s.False(jobs.IsRetryable(err))
-}
-
-func (s *RetrySuite) TestClassifyJobError_RetryUntilMax() {
+func (s *RetrySuite) TestClassifyJobError_RetryableWithinLimit() {
 	err := jobs.Retryable(errors.New("timeout"))
 	s.False(jobs.ClassifyJobError(err, 1, 3))
+}
+
+func (s *RetrySuite) TestClassifyJobError_RetryableExhausted() {
+	err := jobs.Retryable(errors.New("timeout"))
 	s.True(jobs.ClassifyJobError(err, 3, 3))
 }
 
-func (s *RetrySuite) TestClassifyJobError_NonRetryableDeadLetter() {
-	err := chi_error.NewBadRequestError(errors.New("bad"), "BadRequest", nil)
-	s.True(jobs.ClassifyJobError(err, 0, 3))
+func (s *RetrySuite) TestClassifyJobError_Permanent() {
+	s.True(jobs.ClassifyJobError(errors.New("bad input"), 0, 3))
 }

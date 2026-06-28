@@ -2,51 +2,55 @@ package jobs
 
 import (
 	"errors"
-	"net/http"
-
-	chi_error "github.com/yca-software/2chi-go-error"
+	"fmt"
 )
 
-type errRetryableMarker struct{ err error }
-
-func (e *errRetryableMarker) Error() string { return e.err.Error() }
-func (e *errRetryableMarker) Unwrap() error { return e.err }
-
-// Retryable marks an error as infrastructure-retryable for SQS consumers.
+// Retryable marks an error as eligible for SQS consumer retry.
 func Retryable(err error) error {
 	if err == nil {
 		return nil
 	}
-	return &errRetryableMarker{err: err}
+	return &retryableError{err: err}
 }
 
-// IsRetryable reports whether err should be retried before dead-lettering.
+type retryableError struct {
+	err error
+}
+
+func (e *retryableError) Error() string {
+	return e.err.Error()
+}
+
+func (e *retryableError) Unwrap() error {
+	return e.err
+}
+
+// IsRetryable reports whether err (or its chain) was marked retryable.
 func IsRetryable(err error) bool {
-	if err == nil {
-		return false
-	}
-	if _, ok := errors.AsType[*errRetryableMarker](err); ok {
-		return true
-	}
-	var apiErr *chi_error.Error
-	if errors.As(err, &apiErr) && apiErr != nil {
-		code := apiErr.StatusCode
-		return code >= http.StatusInternalServerError && code <= 599
-	}
-	return false
+	var retryable *retryableError
+	return errors.As(err, &retryable)
 }
 
-// ClassifyJobError reports whether a failed job message should be dead-lettered (not retried).
-func ClassifyJobError(err error, retryCount, infraMax int) bool {
-	return classifyJobError(err, retryCount, infraMax)
+// ClassifyJobError returns true when the message should be dropped (dead-letter behavior).
+func ClassifyJobError(err error, retryCount, maxRetries int) bool {
+	if IsRetryable(err) {
+		return retryCount >= maxRetries
+	}
+	return true
 }
 
-func classifyJobError(err error, retryCount, infraMax int) (deadLetter bool) {
-	if !IsRetryable(err) {
-		return true
+// PermanentJobError marks handler failures that should not be retried.
+type PermanentJobError struct {
+	Err error
+}
+
+func (e *PermanentJobError) Error() string {
+	if e.Err == nil {
+		return "permanent job error"
 	}
-	if retryCount >= infraMax {
-		return true
-	}
-	return false
+	return fmt.Sprintf("permanent job error: %v", e.Err)
+}
+
+func (e *PermanentJobError) Unwrap() error {
+	return e.Err
 }

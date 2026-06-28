@@ -19,7 +19,7 @@ import (
 	chi_logger "github.com/yca-software/2chi-go-logger"
 )
 
-// WorkerDeps bundles dependencies for the SQS worker process.
+// WorkerDeps bundles dependencies for the worker and cron processes.
 type WorkerDeps struct {
 	Config     *config.Config
 	Logger     chi_logger.Logger
@@ -61,12 +61,10 @@ func BootstrapWorker(ctx context.Context, cfg *config.Config, logger chi_logger.
 
 	jobClient, err := jobs.NewClient(jobs.Config{
 		SQS:                        awsModule.SQS,
-		CleanupQueueURL:            cfg.Jobs.Cleanup.QueueURL,
 		ApplyScheduledPlanQueueURL: cfg.Jobs.ApplyScheduledPlanChanges.QueueURL,
 		Logger:                     logger,
 		Metrics:                    appObserver.GetJobMetricsHook(),
 		InfraMaxRetries:            cfg.Jobs.MaxRetries,
-		CleanupConcurrency:         cfg.Jobs.Cleanup.Concurrency,
 		ApplyScheduledConcurrency:  cfg.Jobs.ApplyScheduledPlanChanges.Concurrency,
 	})
 	if err != nil {
@@ -83,7 +81,7 @@ func BootstrapWorker(ctx context.Context, cfg *config.Config, logger chi_logger.
 	}, nil
 }
 
-// CloseDatastores closes worker datastores.
+// CloseDatastores closes process datastores.
 func CloseDatastores(deps *WorkerDeps) {
 	if deps == nil || deps.Datastores == nil {
 		return

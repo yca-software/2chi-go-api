@@ -90,7 +90,6 @@ type SesConfig struct {
 
 type JobsConfig struct {
 	MaxRetries                int            `koanf:"max_retries"`
-	Cleanup                   JobQueueConfig `koanf:"cleanup"`
 	ApplyScheduledPlanChanges JobQueueConfig `koanf:"apply_scheduled_plan_changes"`
 }
 

@@ -1,4 +1,4 @@
-package cleanup_runner
+package cleanup
 
 import (
 	"context"
@@ -9,29 +9,29 @@ import (
 	chi_logger "github.com/yca-software/2chi-go-logger"
 )
 
-// CleanupStep is a single parallel cleanup task.
-type CleanupStep struct {
+// Step is a single parallel cleanup task.
+type Step struct {
 	Name string
 	Run  func(context.Context) error
 }
 
-// CleanupRunner runs cleanup steps in parallel (used by the cleanup SQS consumer).
-type CleanupRunner struct {
+// Runner runs cleanup steps in parallel.
+type Runner struct {
 	wg     sync.WaitGroup
 	logger chi_logger.Logger
-	steps  []CleanupStep
+	steps  []Step
 }
 
-// NewCleanupRunner builds a runner for the given steps.
-func NewCleanupRunner(logger chi_logger.Logger, steps ...CleanupStep) *CleanupRunner {
-	return &CleanupRunner{logger: logger, steps: steps}
+// NewRunner builds a runner for the given steps.
+func NewRunner(logger chi_logger.Logger, steps ...Step) *Runner {
+	return &Runner{logger: logger, steps: steps}
 }
 
-// Run executes all steps concurrently; step errors are logged but do not fail the job.
-func (r *CleanupRunner) Run(ctx context.Context) error {
+// Run executes all steps concurrently; step errors are logged but do not fail the task.
+func (r *Runner) Run(ctx context.Context) error {
 	for _, step := range r.steps {
 		r.wg.Add(1)
-		go func(s CleanupStep) {
+		go func(s Step) {
 			defer r.wg.Done()
 			if err := s.Run(ctx); err != nil {
 				if isNoRowsAffected(err) {

@@ -14,32 +14,30 @@ const (
 	applyScheduledPlanChangesInterval = time.Hour
 )
 
-// Publisher enqueues background job triggers (implemented by jobs.Client).
-type Publisher interface {
-	PublishCleanup(context.Context) error
-	PublishApplyScheduledPlanChanges(context.Context) error
-}
-
 // Deps wires cron scheduling dependencies.
 type Deps struct {
-	Publisher Publisher
-	Logger    chi_logger.Logger
+	Cleanup                        func(context.Context) error
+	PublishApplyScheduledPlanChanges func(context.Context) error
+	Logger                         chi_logger.Logger
 }
 
-// Start registers interval publishers and returns a cancel func for shutdown.
+// Start registers interval tasks and returns a cancel func for shutdown.
 func Start(deps Deps) (context.CancelFunc, error) {
-	if deps.Publisher == nil {
-		deps.Logger.Warn("job publisher not configured; cron dispatcher disabled")
+	if deps.Cleanup == nil && deps.PublishApplyScheduledPlanChanges == nil {
+		deps.Logger.Warn("no cron tasks configured; cron scheduler disabled")
 		return nil, nil
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	scheduler := cron.New()
 	logger := deps.Logger
-	publisher := deps.Publisher
 
-	schedulePublish(ctx, scheduler, logger, cleanupArchivedInterval, "cleanup_archived", publisher.PublishCleanup)
-	schedulePublish(ctx, scheduler, logger, applyScheduledPlanChangesInterval, "apply_scheduled_plan_changes", publisher.PublishApplyScheduledPlanChanges)
+	if deps.Cleanup != nil {
+		scheduleTask(ctx, scheduler, logger, cleanupArchivedInterval, "cleanup_archived", deps.Cleanup)
+	}
+	if deps.PublishApplyScheduledPlanChanges != nil {
+		scheduleTask(ctx, scheduler, logger, applyScheduledPlanChangesInterval, "apply_scheduled_plan_changes", deps.PublishApplyScheduledPlanChanges)
+	}
 
 	scheduler.Start()
 	go func() {
@@ -51,28 +49,16 @@ func Start(deps Deps) (context.CancelFunc, error) {
 	return cancel, nil
 }
 
-// SchedulePublishForTest exposes schedule registration for unit tests.
-func SchedulePublishForTest(
+func scheduleTask(
 	ctx context.Context,
 	scheduler *cron.Cron,
 	logger chi_logger.Logger,
 	interval time.Duration,
 	jobName string,
-	publish func(context.Context) error,
+	run func(context.Context) error,
 ) {
-	schedulePublish(ctx, scheduler, logger, interval, jobName, publish)
-}
-
-func schedulePublish(
-	ctx context.Context,
-	scheduler *cron.Cron,
-	logger chi_logger.Logger,
-	interval time.Duration,
-	jobName string,
-	publish func(context.Context) error,
-) {
-	if err := publish(ctx); err != nil {
-		logger.Error("cron publish failed", "job", jobName, "error", err)
+	if err := run(ctx); err != nil {
+		logger.Error("cron task failed", "job", jobName, "error", err)
 	}
 
 	var running atomic.Bool
@@ -85,8 +71,8 @@ func schedulePublish(
 		if ctx.Err() != nil {
 			return
 		}
-		if err := publish(ctx); err != nil && ctx.Err() == nil {
-			logger.Error("cron publish failed", "job", jobName, "error", err)
+		if err := run(ctx); err != nil && ctx.Err() == nil {
+			logger.Error("cron task failed", "job", jobName, "error", err)
 		}
 	}); err != nil {
 		logger.Error("failed to register cron job", "job", jobName, "error", err, "interval", interval.String())
